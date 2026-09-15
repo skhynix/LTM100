@@ -413,6 +413,82 @@ So **one user = one MemMachine project** under a shared org. `setup` creates
 one project per user (409 "already exists" is tolerated for reruns);
 `teardown` deletes them.
 
+**Isolation scope.** Two backend options change that shape, so a run can
+measure the cost of the boundary itself:
+
+```yaml
+backend:
+  project_id: shared          # every user lands in this one project
+  filter_by_producer: true    # AND producer_id = '<user>' into every search
+```
+
+`project_id` collapses every virtual user onto one project; `filter_by_producer`
+then makes `producer_id` do the separation the project boundary used to do. It
+is AND-ed into any `--filter` you pass rather than replacing it, so an arm can
+carry a metadata filter at the same time and the two stay separable. Your filter
+is parenthesised when the two are combined, because `AND` binds tighter than
+`OR` server-side: `producer_id = 'u' AND a OR b` parses as
+`(producer_id = 'u' AND a) OR b`, which returns anything matching `b` whoever
+produced it. Both are
+inert unset: `project_id: ""` keeps one project per user and the request is
+byte-identical to one built without either option. `filter_by_producer` also
+works without `project_id`: in a per-user project every episode's producer is
+that user, so the results do not change and the arm measures what the filter
+alone costs — the natural control for a shared-project arm.
+
+One restriction: each shard tears down the users it drove, which assumes a
+project per user. With `project_id` set they all share one, so `--procs > 1`
+refuses to delete on exit rather than let the first shard to finish drop the
+project the others are still using. Pass `--no-delete-on-exit` — which an
+isolation-scope arm wants anyway, since the corpus is the thing under test. For
+the same reason, a shared project that already existed when the run started is
+never deleted on exit; only one the run created is.
+
+This is a different measurement, not a variant of the same one. MemMachine
+partitions its vector collection by a key derived from `org_id/project_id` and
+builds it with `m=0, payload_m=16`: there are no global HNSW links, only the
+per-value links Qdrant adds for each indexed field — the partition key among
+them — to each segment's one graph. A partition below the full-scan threshold is
+searched exactly rather than through those links. So many per-user projects and
+one shared project take different search paths, and the partition filter
+decides which one a query gets.
+
+Read such an arm carefully: collapsing users moves three things at once — the
+vector index topology, the segment-store partitioning (one partition instead of
+N, which is database-side rather than vector-side), and query isolation, since
+`top_k` now draws from every user's corpus. Run the matched per-user control and
+split the server's own `event_memory_query_phase_seconds` by phase — the core
+exposes it on `GET /api/v2/metrics`, alongside
+`vector_store_qdrant_latency_seconds` and
+`segment_store_sqlalchemy_latency_seconds`, so reading the delta across a run
+separates vector-side from database-side. Without that split the arm cannot say
+which of the three moved.
+
+Two more things worth knowing before scoring one. `producer_id` is one of ten
+filterable server-side fields, all of which have a vector-store index behind
+them; user metadata under the `m.` prefix does not, so the two are not
+comparable as filters.
+
+**Check the filter contract before trusting a filtered number.**
+`tools/filter_contract.py` ingests a small fixture into one project and asserts
+what the server does with a filter — that a producer filter returns exactly one
+producer, that a restrictive filter returns the match count rather than a padded
+`top_k`, that an `OR` cannot widen past the producer scope, and that an unknown
+field is rejected rather than ignored:
+
+```sh
+./tools/filter_contract.py http://<core-pod-ip>:8081
+```
+
+Twelve checks, a few seconds, no load. It exists because the unit suite covers
+only the filter string the client builds, and every filter defect found so far
+was on the other side of the wire while those tests stayed green. Run it
+whenever the build, the vector store or the grammar changes.
+
+The embedding call usually dominates a single search, so end-to-end latency
+cannot resolve a change in the vector store. Score on the phase metrics, or use
+a local embedder.
+
 **add** maps to `POST /api/v2/memories`:
 
 ```
@@ -495,4 +571,5 @@ and `search_memory` exposes neither `expand_context` nor `filter`. Rather
 than silently dropping metadata or running a baseline search under the label
 of a filtered/expanded one (which would make the error rate lie), the MCP
 adapter **raises** for `--expand`/`--filter` and for items carrying metadata
-— use the REST backend for those arms.
+— use the REST backend for those arms. The same goes for the isolation-scope
+options: `project_id` and `filter_by_producer` are refused at construction.
