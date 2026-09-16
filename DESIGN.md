@@ -39,7 +39,7 @@ configuration is simple, and defaults are sensible.
 
 **Goals**
 - Pluggable datasets (LongMemEval first; BEAM, LoCoMo, others later).
-- Pluggable LTM backends (MemMachine first; Mem0, others later).
+- Pluggable LTM backends (MemMachine and Mem0; others later).
 - Pluggable transport (REST first; MCP later) under a unified backend adapter.
 - Multiple load scenarios: pure load tests and realistic per-user patterns.
 - Reproducible (seeded), with variance runs available.
@@ -171,8 +171,10 @@ class LTMClient(Protocol):
 ```
 
 - Per-user scoping is the adapter's responsibility: it maps `UserId` to the
-  backend's tenant key (MemMachine: `org_id`/`project_id` → `session_key`).
-- The adapter is async; sync SDKs (e.g. Mem0) are wrapped via an executor.
+  backend's tenant key (MemMachine: `org_id`/`project_id` → `session_key`;
+  Mem0: namespaced `user_id`).
+- The adapter is async. Mem0 uses its self-hosted REST API, so the load path
+  does not run a synchronous SDK inside the client process.
 - `setup`/`teardown` are out-of-measurement phases.
 - A backend may expose a `health()` probe so the run report records the
   server's own version (`meta.build`) — a throughput number is not
@@ -496,18 +498,14 @@ Resolved during implementation:
   All applied uniformly to every user for now.
 
 Still open / next work (priority order):
-1. **Mem0 backend adapter** — a second LTM solution under the `LTMClient`
-   contract, to compare two LTM solutions on the same workload. Likely
-   SDK-based (serverless), so a sync SDK wrapped via an executor is a design
-   point to confirm.
-2. **Per-user in-flight > 1** — currently fixed at 1 in the runner; make it a
+1. **Per-user in-flight > 1** — currently fixed at 1 in the runner; make it a
    runner parameter so peak-concurrency measurement is not capped at N.
-3. **Per-user-group finer control** — define user groups with their own
+2. **Per-user-group finer control** — define user groups with their own
    `answer_time`/`user_gap`/`top_k` and a per-group user ratio, plus a
    per-user (or per-group) duration / "aggressiveness" knob. (Implement
    after the new timing/top_k params are validated to move load on a live
    server.)
-4. **Configurable memory types** — replace the REST adapter's hardcoded
+3. **Configurable memory types** — replace the REST adapter's hardcoded
    episodic-only `types` with a config option (semantic adds LLM background
    processing load). The MCP transport is already all-types by the tool's
    design. Synergy with Mem0.

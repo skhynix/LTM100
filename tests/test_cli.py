@@ -5,6 +5,7 @@ from __future__ import annotations
 import pytest
 import yaml
 
+from ltm100.adapters.backends.mem0 import Mem0Client
 from ltm100.adapters.backends.memmachine import MemMachineClient
 from ltm100.adapters.datasets.longmemeval import LongMemEvalAdapter
 from ltm100.cli import build_parser
@@ -51,6 +52,16 @@ def test_build_backend_resolves_adapter(tmp_path):
     backend = build_backend(cfg.backend)
     assert isinstance(backend, MemMachineClient)
     assert backend.org_prefix == "ltm100"
+
+
+def test_build_backend_resolves_mem0():
+    from ltm100.config import AdapterConfig
+
+    backend = build_backend(
+        AdapterConfig("mem0", {"base_url": "http://localhost:8888"})
+    )
+    assert isinstance(backend, Mem0Client)
+    assert backend.user_prefix == "ltm100"
 
 
 def test_load_config_requires_dataset(tmp_path):

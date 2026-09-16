@@ -1,0 +1,21 @@
+# LTM100 example config: synthetic dataset + self-hosted Mem0 OSS REST backend.
+#
+# Run with:
+#   ltm100 run --config examples/mem0.yaml \
+#       --scenario mixed --users 20 --duration 30 --seed 0
+
+dataset:
+  name: synthetic
+  memories_per_user: 100
+  content_chars: 200
+
+backend:
+  name: mem0
+  base_url: http://localhost:8888
+  user_prefix: ltm100
+  timeout: 60.0
+  retries: 0
+  # false stores each input as one memory without LLM fact extraction. This
+  # matches LTM100's one-item/one-memory accounting and MemMachine episodic mode.
+  infer: false
+  # api_key: m0sk_your_key_here  # omit when Mem0 uses AUTH_DISABLED=true

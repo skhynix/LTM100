@@ -30,8 +30,8 @@ Implemented:
 - Datasets: LongMemEval (local file or HuggingFace; large local files are
   streamed with `ijson`), synthetic (with optional `categories` for
   `--filter`).
-- Backend: MemMachine (REST and MCP transports); REST retries
-  connection-level failures only (`retries` option).
+- Backends: MemMachine (REST and MCP transports) and Mem0 OSS (REST); REST
+  retries connection-level failures only (`retries` option).
 - Server-side search knobs: `--expand` (expand_context) and `--filter`
   (metadata filter), forwarded to every search; the MCP backend refuses
   them loudly rather than ignoring them.
@@ -42,7 +42,7 @@ Implemented:
   `items.empty_rate` and the server build recorded in `meta.build`.
 
 Planned (see [DESIGN.md](./DESIGN.md) for the full roadmap):
-- Mem0 backend adapter; per-user in-flight > 1; per-user-group finer control;
+- Per-user in-flight > 1; per-user-group finer control;
   configurable memory types; additional datasets (BEAM, LoCoMo).
 
 ## Install
@@ -227,8 +227,8 @@ See `ltm100 run --help` for the complete list.
 ## Backend setup
 
 LTM100 talks to an LTM server through a pluggable **backend adapter**
-(`LTMClient` contract). The initial baseline backend is **MemMachine**,
-usable over **REST** or **MCP**:
+(`LTMClient` contract). The supported backends are **MemMachine** and
+**Mem0 OSS**:
 
 - **MemMachine (REST)** — `examples/memmachine.yaml`. Points `backend.base_url`
   at the server (e.g. `http://localhost:8080`); `org_prefix` namespaces
@@ -242,9 +242,16 @@ usable over **REST** or **MCP**:
   expose neither `expand_context`/`filter` nor item metadata, so the MCP
   backend **refuses** `--expand`/`--filter` and metadata-bearing items
   loudly — use the REST backend for those arms.
+- **Mem0 OSS (REST)** — `examples/mem0.yaml`. Maps each virtual user to a
+  namespaced Mem0 `user_id`; uses `POST /memories`, `POST /search`, and
+  `DELETE /memories`. The default `infer: false` stores each input as one
+  memory without LLM fact extraction, matching LTM100's item accounting and
+  the MemMachine episodic-only baseline. Set `infer: true` explicitly to
+  benchmark Mem0's extraction pipeline. Mem0 supports `--filter` but not
+  `--expand`.
 
 Verify the server is up before a run (MemMachine: `GET /api/v2/health`).
-Additional backends (e.g. Mem0) and how to add a new one are described in
+Further design details and how to add a new backend are described in
 [`DESIGN.md`](./DESIGN.md).
 
 ## Datasets

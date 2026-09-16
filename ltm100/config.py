@@ -24,6 +24,7 @@ from typing import Any
 
 import yaml
 
+from ltm100.adapters.backends.mem0 import Mem0Client
 from ltm100.adapters.backends.memmachine import MemMachineClient
 from ltm100.adapters.datasets.longmemeval import LongMemEvalAdapter
 from ltm100.adapters.datasets.synthetic import SyntheticAdapter
@@ -74,6 +75,7 @@ _DATASET_REGISTRY: dict[str, type] = {
 
 _BACKEND_REGISTRY: dict[str, type] = {
     MemMachineClient.name: MemMachineClient,
+    Mem0Client.name: Mem0Client,
 }
 
 
@@ -104,7 +106,7 @@ def build_backend(cfg: AdapterConfig) -> LTMClient:
 __all__ = [
     "AdapterConfig",
     "BenchmarkConfig",
-    "load_config",
-    "build_dataset",
     "build_backend",
+    "build_dataset",
+    "load_config",
 ]

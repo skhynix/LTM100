@@ -398,8 +398,7 @@ drain).
 The above describes behavior at the `LTMClient` contract level. When the
 backend is **MemMachine over REST** (the current baseline adapter,
 `ltm100/adapters/backends/memmachine.py`), the contract maps to concrete
-requests as follows. This is the only backend-specific section; a future
-adapter (e.g. Mem0) would map the same contract differently.
+requests as follows.
 
 **Tenancy.** MemMachine's multi-tenancy is
 `session_key = f"{org_id}/{project_id}"`. The adapter maps a user to a single
@@ -496,3 +495,29 @@ than silently dropping metadata or running a baseline search under the label
 of a filtered/expanded one (which would make the error rate lie), the MCP
 adapter **raises** for `--expand`/`--filter` and for items carrying metadata
 — use the REST backend for those arms.
+
+---
+
+## Mem0 backend specifics
+
+The `mem0` adapter targets the unversioned self-hosted Mem0 OSS REST API.
+Each virtual user maps to `f"{user_prefix}_user_{UserId}"` and is passed as
+Mem0's `user_id` on every operation. Mem0 creates that scope lazily, so
+`setup` makes no request.
+
+**add** sends one `POST /memories` request per `MemoryItem` with `messages`,
+the scoped `user_id`, optional metadata, and `infer`. `infer` defaults to
+false, preserving one-input/one-memory accounting and avoiding LLM fact
+extraction in comparisons with MemMachine's episodic-only path. With
+`infer: true`, one input may produce zero, one, or several memories and add
+latency includes the extraction pipeline.
+
+**search** sends `POST /search` with `query`, `top_k`, and a `filters` object
+containing the scoped `user_id`. LTM100's exact-match
+`metadata.key=value` expression is translated to Mem0's flattened metadata
+filter `{key: value}`. Mem0 has no `expand_context` equivalent, so non-zero
+`--expand` is rejected instead of silently ignored.
+
+**teardown** sends `DELETE /memories?user_id=...` once per virtual user when
+delete-on-exit is enabled. Optional `api_key` authentication is sent through
+the `X-API-Key` header.
