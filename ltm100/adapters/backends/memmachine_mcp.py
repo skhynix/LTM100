@@ -57,9 +57,19 @@ class MemMachineMcpClient:
         *,
         mcp_path: str = "/mcp",
         org_prefix: str = "ltm100",
+        project_id: str = "",
+        filter_by_producer: bool = False,
         timeout: float = 60.0,
         add_batch_size: int = 50,
     ) -> None:
+        # Accepted only to refuse them by name: the tools take one proj_id per
+        # call and no filter, so neither isolation-scope option can be honoured.
+        if project_id or filter_by_producer:
+            raise ValueError(
+                "the MCP backend supports neither project_id nor "
+                "filter_by_producer: search_memory takes no filter. Use the "
+                "memmachine (REST) backend for isolation-scope arms."
+            )
         self.org_prefix = org_prefix
         self.add_batch_size = add_batch_size
         # REST transport for setup/teardown (project create/delete).

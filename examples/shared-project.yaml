@@ -1,0 +1,22 @@
+# Isolation-scope arm: every virtual user in ONE project, with producer_id
+# doing the separation the project boundary normally does.
+#
+# Pair it with a matched control - the same file with the two tenancy options
+# removed and a different org_prefix - or the result attributes to nothing.
+# See docs/scenarios.md, "Isolation scope".
+
+dataset:
+  name: synthetic
+  memories_per_user: 2000
+  content_chars: 200
+  categories: 10            # gives m.category something to select as well
+
+backend:
+  name: memmachine
+  base_url: http://127.0.0.1:8081
+  org_prefix: tenancy
+  project_id: shared        # every user lands here: one vector partition
+  filter_by_producer: true  # AND producer_id = '<user>' into every search
+  timeout: 300.0
+  retries: 2
+  add_batch_size: 50

@@ -27,6 +27,8 @@ from ltm100.core.scenarios import get_scenario
 from ltm100.metrics.aggregate import aggregate
 from ltm100.metrics.report import write_raw_ndjson, write_summary_csv, write_summary_json
 
+logger = logging.getLogger(__name__)
+
 
 def _split(total: int, procs: int, index: int) -> int:
     """This shard's share of a whole-run integer budget.
@@ -148,6 +150,31 @@ def _backend_build(cfg) -> dict:
 def _run(args: argparse.Namespace) -> int:
     cfg = load_config(args.config)
     run_cfg = _build_run_config(args)
+    # Each shard tears down the users it drove, which assumes a project per
+    # user. With backend.project_id set they all share one, so the first shard
+    # to finish would delete it under the others mid-run. Refuse rather than
+    # coordinate: an isolation-scope arm wants the corpus kept anyway.
+    if (
+        run_cfg.procs > 1
+        and run_cfg.delete_on_exit
+        and cfg.backend.options.get("project_id")
+    ):
+        raise ValueError(
+            "backend.project_id puts every user in one project, so --procs > 1 "
+            "cannot delete on exit: whichever shard finishes first would drop "
+            "the project the others are still using. Pass --no-delete-on-exit "
+            "and remove the project yourself, or run with --procs 1."
+        )
+    # A shared project with no producer filter is a legitimate shape -- one
+    # memory pool everyone searches -- but it is easily mistaken for the
+    # isolation measurement, so say which one this run is.
+    options = cfg.backend.options
+    if options.get("project_id") and not options.get("filter_by_producer"):
+        logger.warning(
+            "backend.project_id is set without filter_by_producer: every virtual "
+            "user searches every other user's memories. Set filter_by_producer: "
+            "true for per-user isolation inside the shared project."
+        )
     # Before the run: a server that dies under load still has to be identifiable.
     build = _backend_build(cfg)
 
