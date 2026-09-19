@@ -166,3 +166,64 @@ async def test_open_model_rejections_recorded_with_kind():
     assert all(r.error_kind == "queue_full" for r in rejected)
     # Rejected ops have zero latency.
     assert all(r.ended_at == r.started_at for r in rejected)
+
+
+@pytest.mark.asyncio
+async def test_queue_bound_limits_waiters_exactly():
+    """C=1, Q=1 admits one runner and one waiter; the next request rejects."""
+    cfg = RunConfig(
+        users=1,
+        duration=1.0,
+        model="open",
+        arrival_rate=1.0,
+        session_ops=1,
+        global_concurrency=1,
+        queue_bound=1,
+    )
+    runner = LoadRunner(
+        client=SlowBackend(), dataset=FakeDataset(), scenario=Mixed(), config=cfg
+    )
+    runner._global_sem = asyncio.Semaphore(cfg.global_concurrency)
+
+    assert await runner._acquire_slot_bounded() is True  # running
+    waiter = asyncio.create_task(runner._acquire_slot_bounded())
+    await asyncio.sleep(0)  # waiter reserves the one queue position
+    assert runner._admitted == 2
+
+    assert await runner._acquire_slot_bounded() is False
+    assert runner._admitted == 2
+
+    runner._release_slot()
+    assert await asyncio.wait_for(waiter, timeout=0.1) is True
+    runner._release_slot()
+    assert runner._admitted == 0
+
+
+@pytest.mark.asyncio
+async def test_cancelled_waiter_returns_its_queue_position():
+    cfg = RunConfig(
+        users=1,
+        duration=1.0,
+        model="open",
+        arrival_rate=1.0,
+        session_ops=1,
+        global_concurrency=1,
+        queue_bound=1,
+    )
+    runner = LoadRunner(
+        client=SlowBackend(), dataset=FakeDataset(), scenario=Mixed(), config=cfg
+    )
+    runner._global_sem = asyncio.Semaphore(cfg.global_concurrency)
+
+    assert await runner._acquire_slot_bounded() is True
+    waiter = asyncio.create_task(runner._acquire_slot_bounded())
+    await asyncio.sleep(0)
+    assert runner._admitted == 2
+
+    waiter.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await waiter
+    assert runner._admitted == 1
+
+    runner._release_slot()
+    assert runner._admitted == 0

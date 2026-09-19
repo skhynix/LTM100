@@ -75,12 +75,22 @@ decide what to do. The policy:
   - `status = "rejected"`, `error_kind = "queue_full"`, zero latency
     (it is recorded but not executed, so the rejection rate is measurable).
 - `Q=0` rejects immediately once `C` is saturated (no queue). `Q>0` lets up
-  to `Q` requests busy-wait (in 0.005s steps) for a slot before rejecting.
+  to exactly `Q` requests wait for a slot before rejecting. Admission is an
+  atomic reservation over running plus waiting requests, so simultaneous
+  arrivals cannot oversubscribe the queue.
 
 The rejection rate and where it kicks in are the open model's most
 important result: "at what arrival rate does the server start dropping
 load?" Find it by sweeping `--arrival-rate` upward and watching the
 rejected share.
+
+Reports keep the overload populations separate: `offered` is every attempt,
+`accepted` is every request admitted to service (`successful + errors`), and
+`rejected` is a queue-full refusal. `throughput_ops_s` and `qps` report
+successful throughput; explicit `*_ops_s` fields expose offered, accepted,
+successful, and rejected rates. Rejection rate is rejected / offered, while
+error rate is backend errors / accepted. Service-latency percentiles contain
+successful requests only, so zero-time rejections cannot lower p50 or p99.
 
 ## Same scenario, two models — chat-replay example
 

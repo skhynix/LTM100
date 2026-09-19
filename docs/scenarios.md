@@ -355,8 +355,9 @@ count.
 - When in-flight reaches `C + Q`, the next request is **rejected**
   (`status=rejected`, `error_kind=queue_full`, zero latency) — it is recorded
   but not executed.
-- `Q=0` rejects immediately on C saturation. `Q>0` lets up to Q requests
-  queue (busy-wait in 0.005s steps) before acquiring a slot.
+- `Q=0` rejects immediately on C saturation. `Q>0` lets up to exactly Q
+  requests reserve a queue position and wait for a slot. Running plus waiting
+  admission is bounded atomically at `C + Q`.
 
 **add:** when not a search, one item per op, `delay = uniform(0, think)`.
 **search:** query from the content-derived pool (the user's own memory

@@ -1,13 +1,11 @@
 """Post-run aggregation of per-request results into a summary.
 
-Computes count, throughput (ops/s), QPS, and latency percentiles (p50/p90/
-p95/p99/max), broken down by op type, plus an overall total throughput/QPS and
-error rate. Each op type also reports how many items it moved: for search that
-is results returned, so `empty_rate` distinguishes a run that searched
-successfully from one where every query returned nothing — both of which have
-an error rate of zero. Per-op latency percentiles are kept separate from the top-level
-summary because mixing add/search latencies into one distribution is ambiguous;
-the overall view reports throughput only. Pure function over a list of OpResult.
+Separates offered, accepted, successful, failed, and rejected requests so an
+overloaded run cannot make throughput look better or latency look lower merely
+by rejecting quickly. The compatibility fields `throughput_ops_s` and `qps`
+mean successful throughput. Latency and item statistics use successful requests
+only. Per-op latency stays separate because mixing add/search distributions is
+ambiguous. Pure function over a list of OpResult.
 """
 
 from __future__ import annotations
@@ -49,6 +47,17 @@ def aggregate(results: Iterable[OpResult]) -> dict:
             "total": 0,
             "throughput_ops_s": 0.0,
             "qps": 0.0,
+            "offered": 0,
+            "accepted": 0,
+            "successful": 0,
+            "errors": 0,
+            "rejected": 0,
+            "offered_ops_s": 0.0,
+            "accepted_ops_s": 0.0,
+            "successful_ops_s": 0.0,
+            "rejected_ops_s": 0.0,
+            "rejection_rate": 0.0,
+            "errors_by_kind": {},
             "by_op": {},
             "error_rate": 0.0,
             "wall_seconds": 0.0,
@@ -65,23 +74,45 @@ def aggregate(results: Iterable[OpResult]) -> dict:
     summary_by_op: dict[str, dict] = {}
     total = 0
     total_errors = 0
+    total_rejected = 0
+    total_successful = 0
+    errors_by_kind: dict[str, int] = defaultdict(int)
     for op_type, items in by_op.items():
-        latencies_ms = [(r.ended_at - r.started_at) * 1000.0 for r in items]
-        errors = sum(1 for r in items if r.status != "ok")
         ok = [r for r in items if r.status == "ok"]
+        rejected = [r for r in items if r.status == "rejected"]
+        errors = [r for r in items if r.status not in ("ok", "rejected")]
+        accepted = len(ok) + len(errors)
+        latencies_ms = [(r.ended_at - r.started_at) * 1000.0 for r in ok]
+        op_errors_by_kind: dict[str, int] = defaultdict(int)
+        for r in errors:
+            kind = r.error_kind or "unknown"
+            op_errors_by_kind[kind] += 1
+            errors_by_kind[kind] += 1
         empty = sum(1 for r in ok if r.n_items == 0)
         total += len(items)
-        total_errors += errors
+        total_successful += len(ok)
+        total_errors += len(errors)
+        total_rejected += len(rejected)
         summary_by_op[op_type] = {
             "count": len(items),
-            "throughput_ops_s": len(items) / wall if wall > 0 else 0.0,
-            "qps": len(items) / wall if wall > 0 else 0.0,
+            "throughput_ops_s": len(ok) / wall if wall > 0 else 0.0,
+            "qps": len(ok) / wall if wall > 0 else 0.0,
+            "offered": len(items),
+            "accepted": accepted,
+            "successful": len(ok),
+            "errors": len(errors),
+            "rejected": len(rejected),
+            "offered_ops_s": len(items) / wall if wall > 0 else 0.0,
+            "accepted_ops_s": accepted / wall if wall > 0 else 0.0,
+            "successful_ops_s": len(ok) / wall if wall > 0 else 0.0,
+            "rejected_ops_s": len(rejected) / wall if wall > 0 else 0.0,
+            "rejection_rate": len(rejected) / len(items) if items else 0.0,
             "latency_ms": {
                 "mean": sum(latencies_ms) / len(latencies_ms) if latencies_ms else 0.0,
                 **_percentiles(latencies_ms),
             },
-            "errors": errors,
-            "error_rate": errors / len(items) if items else 0.0,
+            "error_rate": len(errors) / accepted if accepted else 0.0,
+            "errors_by_kind": dict(sorted(op_errors_by_kind.items())),
             "items": {
                 "mean": sum(r.n_items for r in ok) / len(ok) if ok else 0.0,
                 "empty": empty,
@@ -89,14 +120,26 @@ def aggregate(results: Iterable[OpResult]) -> dict:
             },
         }
 
-    overall_throughput = total / wall if wall > 0 else 0.0
+    accepted = total_successful + total_errors
+    successful_throughput = total_successful / wall if wall > 0 else 0.0
 
     return {
         "total": total,
-        "throughput_ops_s": overall_throughput,
-        "qps": overall_throughput,
+        "throughput_ops_s": successful_throughput,
+        "qps": successful_throughput,
+        "offered": total,
+        "accepted": accepted,
+        "successful": total_successful,
+        "errors": total_errors,
+        "rejected": total_rejected,
+        "offered_ops_s": total / wall if wall > 0 else 0.0,
+        "accepted_ops_s": accepted / wall if wall > 0 else 0.0,
+        "successful_ops_s": successful_throughput,
+        "rejected_ops_s": total_rejected / wall if wall > 0 else 0.0,
+        "rejection_rate": total_rejected / total if total else 0.0,
+        "errors_by_kind": dict(sorted(errors_by_kind.items())),
         "by_op": summary_by_op,
-        "error_rate": total_errors / total if total else 0.0,
+        "error_rate": total_errors / accepted if accepted else 0.0,
         "wall_seconds": round(wall, 6),
     }
 

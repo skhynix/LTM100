@@ -263,12 +263,13 @@ A **Synthetic** dataset is bundled for load testing.
 
 With `--output DIR`, LTM100 writes:
 
-- `summary.json` — aggregated metrics: an overall total throughput/QPS at the
-  top level, plus per op type count, throughput, QPS, latency percentiles
-  p50/p90/p95/p99/max, error rate, and `items.empty_rate` (fraction of
-  searches that returned nothing — a 0% error rate alone cannot tell a
-  working search from a silent one). `meta` records the run config plus the
-  server's own build (`meta.build`, probed from `/api/v2/health`).
+- `summary.json` — aggregated metrics with offered, accepted, successful,
+  error, and rejected counts/rates. `throughput_ops_s` and `qps` are successful
+  throughput; latency percentiles contain successful requests only. Rejection
+  rate is rejected/offered and error rate is backend errors/accepted.
+  `items.empty_rate` remains the fraction of successful searches returning
+  nothing. `meta` records the run config plus the server's own build
+  (`meta.build`, probed from `/api/v2/health`).
 - `summary.csv` — the same summary as a flat table, with an overall `all` row
   (throughput/qps only; latency cells blank since mixing add/search latencies is
   ambiguous).

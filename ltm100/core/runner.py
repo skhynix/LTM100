@@ -51,6 +51,8 @@ class LoadRunner:
         self.config = config
         self.recorder = recorder or InMemoryRecorder()
         self._global_sem: asyncio.Semaphore | None = None
+        self._admission_lock = asyncio.Lock()
+        self._admitted = 0
         self._stop = asyncio.Event()
         self._ops_done = 0
         self._ops_lock = asyncio.Lock()
@@ -196,27 +198,24 @@ class LoadRunner:
         When there is no global cap, always succeeds."""
         if self._global_sem is None:
             return True
-        bound = self.config.queue_bound
-        # Try-acquire loop honoring a soft queue bound.
-        waited = 0.0
-        step = 0.005
-        while True:
-            if self._global_sem.locked() and self._inflight() >= (
-                self.config.global_concurrency + bound
-            ):
+        # Reserve admission before waiting on the semaphore. The counter covers
+        # both running and queued requests, unlike Semaphore._value, which can
+        # only describe permits already taken. The lock makes the capacity
+        # check and reservation one atomic decision across arriving sessions.
+        capacity = self.config.global_concurrency + self.config.queue_bound
+        async with self._admission_lock:
+            if self._admitted >= capacity:
                 return False
-            if self._global_sem.locked():
-                await asyncio.sleep(step)
-                waited += step
-                continue
+            self._admitted += 1
+
+        try:
             await self._global_sem.acquire()
             return True
-
-    def _inflight(self) -> int:
-        # Approximate in-flight = capacity - available permits.
-        if self._global_sem is None:
-            return 0
-        return self.config.global_concurrency - self._global_sem._value
+        except BaseException:
+            # A cancelled waiter must return its admission reservation or the
+            # queue would appear permanently full.
+            self._admitted -= 1
+            raise
 
     async def _record_rejected(self, op: Op, user: UserId) -> None:
         now = time.time()
@@ -234,6 +233,7 @@ class LoadRunner:
     def _release_slot(self) -> None:
         if self._global_sem is not None:
             self._global_sem.release()
+            self._admitted -= 1
 
     async def _preingest(self, users: list[UserId]) -> None:
         """Ingest a fraction of each user's memory stream, concurrently across

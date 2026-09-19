@@ -306,16 +306,17 @@ Per-request recorded fields: `op_type`, `user_id`, `started_at`, `ended_at`,
 stored on add / results returned on search).
 
 Aggregated summary:
-- Total count across op types and wall-clock seconds.
-- Overall throughput/QPS = total / wall_seconds at the top level (the overall
-  view reports throughput only; mixing add/search latencies into one latency
-  distribution is ambiguous, so overall latency percentiles are not computed).
-- Per op type: count, throughput (ops/s), QPS, latency (mean, p50, p90, p95,
-  p99, max), error rate, and **items** (`mean` results per op, `empty` count,
-  `empty_rate`). `empty_rate` matters for search: a run where every query
-  returns zero results still has a 0% error rate, so `empty_rate` is the only
-  field that distinguishes a working search from a silent one.
-- Error rate overall and by kind.
+- Total offered count across op types and wall-clock seconds.
+- Overall and per-op offered, accepted, successful, error, and rejected counts
+  and rates. `throughput_ops_s` / `qps` mean successful throughput; explicit
+  `*_ops_s` fields preserve every population needed for overload analysis.
+- Per op type: successful-request latency (mean, p50, p90, p95, p99, max),
+  rejection rate (rejected / offered), error rate (backend errors / accepted),
+  error-kind breakdown, and **items** (`mean` results per successful op, `empty`
+  count, `empty_rate`). Zero-time rejections never enter service percentiles.
+  `empty_rate` matters for search: a run where every query returns zero results
+  still has a 0% error rate, so it distinguishes a working search from a silent
+  one.
 - Concurrency (observed concurrent in-flight over time, for open model).
 
 ### 7.2 Report metadata (`meta`)

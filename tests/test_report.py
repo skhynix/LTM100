@@ -5,6 +5,8 @@ from __future__ import annotations
 import csv
 import json
 
+import pytest
+
 from ltm100.core.op import OpResult, OpType
 from ltm100.metrics.aggregate import aggregate
 from ltm100.metrics.report import (
@@ -56,6 +58,12 @@ def test_write_summary_csv_has_rows_per_op(tmp_path):
     assert all_row[2] == f"{summary['throughput_ops_s']:.4f}"
     assert all_row[3] == f"{summary['qps']:.4f}"
     assert all_row[4] == ""  # latency_mean blank
+    header = rows[0]
+    assert all_row[header.index("offered")] == "3"
+    assert all_row[header.index("accepted")] == "3"
+    assert all_row[header.index("successful")] == "2"
+    assert all_row[header.index("rejected")] == "0"
+    assert all_row[header.index("errors_by_kind")] == '{"timeout": 1}'
 
 
 def test_write_raw_ndjson_one_line_per_result(tmp_path):
@@ -70,3 +78,41 @@ def test_write_raw_ndjson_one_line_per_result(tmp_path):
     err = json.loads(lines[1])
     assert err["status"] == "error"
     assert err["error_kind"] == "timeout"
+
+
+def test_rejections_do_not_inflate_throughput_or_lower_latency():
+    results = [
+        OpResult(OpType.SEARCH, "u0", 0.0, 1.0, "ok", n_items=2),
+        OpResult(OpType.SEARCH, "u1", 0.2, 0.7, "error", error_kind="timeout"),
+        OpResult(
+            OpType.SEARCH,
+            "u2",
+            2.0,
+            2.0,
+            "rejected",
+            error_kind="queue_full",
+        ),
+    ]
+    summary = aggregate(results)
+    search = summary["by_op"]["search"]
+
+    assert summary["offered"] == 3
+    assert summary["accepted"] == 2
+    assert summary["successful"] == 1
+    assert summary["errors"] == 1
+    assert summary["rejected"] == 1
+    assert summary["offered_ops_s"] == 1.5
+    assert summary["accepted_ops_s"] == 1.0
+    assert summary["successful_ops_s"] == 0.5
+    assert summary["rejected_ops_s"] == 0.5
+    assert summary["throughput_ops_s"] == summary["successful_ops_s"]
+    assert summary["qps"] == summary["successful_ops_s"]
+    assert summary["rejection_rate"] == pytest.approx(1 / 3)
+    assert summary["error_rate"] == 0.5  # errors / accepted
+    assert summary["errors_by_kind"] == {"timeout": 1}
+
+    # Only the successful request contributes to service latency and items.
+    assert search["latency_ms"]["mean"] == 1000.0
+    assert search["latency_ms"]["p50"] == 1000.0
+    assert search["items"]["mean"] == 2.0
+    assert search["errors_by_kind"] == {"timeout": 1}

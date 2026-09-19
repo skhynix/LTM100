@@ -52,6 +52,16 @@ def write_summary_csv(summary: dict[str, Any], path: str | Path) -> None:
                 "latency_max_ms",
                 "errors",
                 "error_rate",
+                "offered",
+                "accepted",
+                "successful",
+                "rejected",
+                "offered_ops_s",
+                "accepted_ops_s",
+                "successful_ops_s",
+                "rejected_ops_s",
+                "rejection_rate",
+                "errors_by_kind",
             ]
         )
         for op_type, m in by_op.items():
@@ -70,6 +80,16 @@ def write_summary_csv(summary: dict[str, Any], path: str | Path) -> None:
                     f"{lat.get('max', 0.0):.4f}",
                     m.get("errors", 0),
                     f"{m.get('error_rate', 0.0):.4f}",
+                    m.get("offered", 0),
+                    m.get("accepted", 0),
+                    m.get("successful", 0),
+                    m.get("rejected", 0),
+                    f"{m.get('offered_ops_s', 0.0):.4f}",
+                    f"{m.get('accepted_ops_s', 0.0):.4f}",
+                    f"{m.get('successful_ops_s', 0.0):.4f}",
+                    f"{m.get('rejected_ops_s', 0.0):.4f}",
+                    f"{m.get('rejection_rate', 0.0):.4f}",
+                    json.dumps(m.get("errors_by_kind", {}), sort_keys=True),
                 ]
             )
         # Overall row across all op types. Latency cells are blank (ambiguous
@@ -90,6 +110,16 @@ def write_summary_csv(summary: dict[str, Any], path: str | Path) -> None:
                 "",
                 total_errors,
                 f"{summary.get('error_rate', 0.0):.4f}",
+                summary.get("offered", 0),
+                summary.get("accepted", 0),
+                summary.get("successful", 0),
+                summary.get("rejected", 0),
+                f"{summary.get('offered_ops_s', 0.0):.4f}",
+                f"{summary.get('accepted_ops_s', 0.0):.4f}",
+                f"{summary.get('successful_ops_s', 0.0):.4f}",
+                f"{summary.get('rejected_ops_s', 0.0):.4f}",
+                f"{summary.get('rejection_rate', 0.0):.4f}",
+                json.dumps(summary.get("errors_by_kind", {}), sort_keys=True),
             ]
         )
 
