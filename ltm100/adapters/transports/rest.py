@@ -79,6 +79,30 @@ class RestTransport:
                 await asyncio.sleep(self.retry_backoff * (2 ** attempt))
                 attempt += 1
 
+    async def request_text(self, method: str, path: str) -> str:
+        """Like request(), but returns the body verbatim instead of parsing it.
+
+        For endpoints that are not JSON -- a Prometheus exposition page is
+        plain text. Same error semantics: HTTP >= 400 raises RestError.
+        """
+        assert self._session is not None, "transport not opened"
+        attempt = 0
+        while True:
+            try:
+                async with self._session.request(method, path) as resp:
+                    text = await resp.text()
+                    if resp.status >= 400:
+                        raise RestError(
+                            f"{method} {path} -> {resp.status}: {text[:500]}"
+                        )
+                    return text
+            except (asyncio.TimeoutError, aiohttp.ClientConnectionError):
+                # Connection-level retries only, for the same reason as request().
+                if attempt >= self.retries:
+                    raise
+                await asyncio.sleep(self.retry_backoff * (2 ** attempt))
+                attempt += 1
+
     async def _once(
         self,
         method: str,

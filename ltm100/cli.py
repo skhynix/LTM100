@@ -27,11 +27,20 @@ from ltm100.core.scenarios import get_scenario
 from ltm100.metrics.aggregate import aggregate
 from ltm100.metrics.report import (
     write_raw_ndjson,
+    write_server_metrics,
     write_summary_csv,
     write_summary_json,
 )
+from ltm100.metrics.server_metrics import SnapshotCollector, finish
 
 logger = logging.getLogger(__name__)
+
+# Set by _run before spawning when --server-metrics resolved for the
+# single-process case: the one shard IS this process, so its runner can call
+# the collector's snapshots as measure hooks. Spawned children start with a
+# fresh import of this module, so the collector never reaches them (their
+# window is covered by the parent's whole-run scrape instead).
+_server_metrics_collector: SnapshotCollector | None = None
 
 
 def _split(total: int, procs: int, index: int) -> int:
@@ -102,8 +111,21 @@ async def _run_shard_async(args: argparse.Namespace) -> list:
     run_cfg = _build_run_config(args)
     scenario = _build_scenario(args)
 
+    hooks: dict[str, Any] = {}
+    if _server_metrics_collector is not None:
+        # procs == 1 only (see the module-level note): this shard is the
+        # process the flag was set in, so its measured window is exactly the
+        # window the user asked about -- pre-ingest and teardown excluded.
+        hooks = {
+            "on_measure_start": _server_metrics_collector.start,
+            "on_measure_end": _server_metrics_collector.end,
+        }
     runner = LoadRunner(
-        client=backend, dataset=dataset, scenario=scenario, config=run_cfg
+        client=backend,
+        dataset=dataset,
+        scenario=scenario,
+        config=run_cfg,
+        **hooks,
     )
     async with backend:  # type: ignore[arg-type]
         await runner.run()
@@ -207,6 +229,33 @@ def _run_metadata(
     return meta
 
 
+def _probe_server_metrics(cfg) -> dict:
+    """Resolve --server-metrics against the backend before the run starts.
+
+    Three answers, none of them fatal, keyed by one discriminating field:
+      - {"unsupported": ...} -- the backend class does not declare the
+        capability; not probed, nothing to probe against;
+      - {"failed": reason}   -- it declares the capability but the endpoint
+        errored or answered empty (older server build, wrong URL);
+      - {"enabled": True}    -- it declares it and GET /api/v2/metrics answered.
+    """
+
+    async def probe() -> dict:
+        backend = build_backend(cfg.backend)
+        if not getattr(backend, "supports_server_metrics", False):
+            return {"unsupported": True}
+        async with backend:  # type: ignore[arg-type]
+            text = await backend.server_metrics_snapshot()
+        if not isinstance(text, str) or not text.strip():
+            return {"failed": "empty response from the metrics endpoint"}
+        return {"enabled": True}
+
+    try:
+        return asyncio.run(probe())
+    except Exception as e:  # noqa: BLE001 - never cost the run
+        return {"failed": f"{type(e).__name__}: {e}"}
+
+
 def _run(args: argparse.Namespace) -> int:
     cfg = load_config(args.config)
     run_cfg = _build_run_config(args)
@@ -238,9 +287,71 @@ def _run(args: argparse.Namespace) -> int:
     # Before the run: a server that dies under load still has to be identifiable.
     build = _backend_build(cfg)
 
-    started_at = datetime.now(timezone.utc)
-    raw = run_shards(_shard_entry, vars(args), run_cfg.procs)
-    ended_at = datetime.now(timezone.utc)
+    # --server-metrics: resolve once, before any load, so the warning a
+    # user gets describes the backend they configured rather than a
+    # mid-run surprise.
+    collector: SnapshotCollector | None = None
+    server_metrics: dict | None = None
+    if args.server_metrics:
+        resolution = _probe_server_metrics(cfg)
+        if resolution.get("unsupported"):
+            logger.warning(
+                "--server-metrics: backend adapter %r does not implement a "
+                "server metrics query; disabled for this run",
+                cfg.backend.name,
+            )
+            server_metrics = {
+                "enabled": False,
+                "status": "unsupported",
+                "window": None,
+                "warnings": [
+                    f"backend adapter {cfg.backend.name!r} implements no server "
+                    "metrics query"
+                ],
+                "rows": [],
+            }
+        elif resolution.get("failed"):
+            logger.warning(
+                "--server-metrics: endpoint probe failed (%s); disabled for this run",
+                resolution["failed"],
+            )
+            server_metrics = {
+                "enabled": False,
+                "status": "failed",
+                "window": None,
+                "warnings": [f"metrics endpoint probe failed: {resolution['failed']}"],
+                "rows": [],
+            }
+        elif run_cfg.procs == 1:
+            # The single shard runs in this process, so its runner's measure
+            # hooks bracket the measured window exactly.
+            collector = SnapshotCollector(build_backend(cfg.backend))
+        else:
+            logger.warning(
+                "--server-metrics with --procs %d: the parent cannot see inside "
+                "the shards' measured windows, so the snapshots bracket the "
+                "whole run including setup and pre-ingest (window=whole_run)",
+                run_cfg.procs,
+            )
+            collector = SnapshotCollector(build_backend(cfg.backend))
+
+    global _server_metrics_collector
+    _server_metrics_collector = collector
+    try:
+        if collector is not None and run_cfg.procs > 1:
+            asyncio.run(collector.start())
+        started_at = datetime.now(timezone.utc)
+        raw = run_shards(_shard_entry, vars(args), run_cfg.procs)
+        ended_at = datetime.now(timezone.utc)
+        if collector is not None and run_cfg.procs > 1:
+            asyncio.run(collector.end())
+    finally:
+        _server_metrics_collector = None
+
+    if collector is not None:
+        window = "measured" if run_cfg.procs == 1 else "whole_run"
+        server_metrics = finish(collector.result(), window=window)
+
     summary = aggregate(raw)
 
     meta = _run_metadata(
@@ -252,12 +363,24 @@ def _run(args: argparse.Namespace) -> int:
         ended_at=ended_at,
     )
 
-    print(json.dumps({"meta": meta, "summary": summary}, indent=2))
+    # The section's `raw` block is the full two-snapshot scrape: too big for
+    # the inline copy, which exists to be read, and goes to its own file.
+    display_metrics = None
+    if server_metrics is not None:
+        display_metrics = {k: v for k, v in server_metrics.items() if k != "raw"}
+    payload: dict[str, Any] = {"meta": meta, "summary": summary}
+    if display_metrics is not None:
+        payload["server_metrics"] = display_metrics
+    print(json.dumps(payload, indent=2))
 
     if args.output:
         out = args.output.rstrip("/")
-        write_summary_json(summary, f"{out}/summary.json", meta=meta)
+        write_summary_json(
+            summary, f"{out}/summary.json", meta=meta, server_metrics=display_metrics
+        )
         write_summary_csv(summary, f"{out}/summary.csv")
+        if server_metrics is not None:
+            write_server_metrics(server_metrics, out)
         if args.raw:
             write_raw_ndjson(raw, f"{out}/raw.ndjson")
         print(f"reports written to {out}/")
@@ -389,6 +512,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="OS processes to shard virtual users across (default 1). One "
         "asyncio process saturates a core well before the server does, so "
         "large user counts need several. --procs 1 is single-process.",
+    )
+    run.add_argument(
+        "--server-metrics",
+        action="store_true",
+        help="scrape the server's own Prometheus latency metrics around the "
+        "run and report per-phase deltas (implemented for the MemMachine "
+        "REST adapter; adapters without the query warn and continue "
+        "without it)",
     )
     run.add_argument("--output", default=None, help="output dir for reports")
     run.add_argument("--raw", action="store_true", help="also write raw.ndjson")

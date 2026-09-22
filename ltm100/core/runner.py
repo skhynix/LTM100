@@ -23,6 +23,7 @@ import asyncio
 import logging
 import random
 import time
+from collections.abc import Awaitable, Callable
 
 from ltm100.common import DatasetAdapter, LTMClient, UserId
 from ltm100.core.config import RunConfig
@@ -43,12 +44,16 @@ class LoadRunner:
         scenario: Scenario,
         config: RunConfig,
         recorder: MetricsRecorder | None = None,
+        on_measure_start: Callable[[], Awaitable[None]] | None = None,
+        on_measure_end: Callable[[], Awaitable[None]] | None = None,
     ) -> None:
         self.client = client
         self.dataset = dataset
         self.scenario = scenario
         self.config = config
         self.recorder = recorder or InMemoryRecorder()
+        self.on_measure_start = on_measure_start
+        self.on_measure_end = on_measure_end
         self._global_sem: asyncio.Semaphore | None = None
         self._admission_lock = asyncio.Lock()
         self._admitted = 0
@@ -80,6 +85,13 @@ class LoadRunner:
         if self.config.preingest:
             await self._preingest(users)
 
+        # Optional observation hooks bracketing the measured window (e.g. the
+        # CLI's server-metrics snapshots). Excluded: setup and pre-ingest
+        # before, teardown after (teardown lives in the caller). A hook
+        # failure is logged and swallowed -- observation never cancels the
+        # benchmark it observes.
+        await self._call_hook(self.on_measure_start, "on_measure_start")
+
         self._start_time = time.monotonic()
         # deadline is None for pure count-based closed runs (no time bound); the
         # open model always has a duration (validated in RunConfig).
@@ -95,7 +107,18 @@ class LoadRunner:
         else:
             await self._closed_loop(users, deadline)
 
+        await self._call_hook(self.on_measure_end, "on_measure_end")
         return self.recorder.raw()
+
+    async def _call_hook(
+        self, hook: Callable[[], Awaitable[None]] | None, what: str
+    ) -> None:
+        if hook is None:
+            return
+        try:
+            await hook()
+        except Exception:  # noqa: BLE001 - hooks observe the run, never break it
+            logger.warning("%s hook failed", what, exc_info=True)
 
     def shard_users(self, users: list[UserId]) -> list[UserId]:
         """This process's slice of the virtual users.

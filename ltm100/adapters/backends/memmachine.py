@@ -16,6 +16,7 @@ Endpoints used:
   POST /api/v2/memories           add memories (episodic)
   POST /api/v2/memories/search    search memories (episodic)
   GET  /api/v2/health             readiness check
+  GET  /api/v2/metrics            Prometheus exposition (optional; CLI-scraped)
 """
 
 from __future__ import annotations
@@ -38,6 +39,13 @@ class MemMachineClient:
     """LTMClient adapter for MemMachine over REST."""
 
     name = "memmachine"
+    # Declared capability: this adapter implements the metrics query
+    # (GET /api/v2/metrics exposes Prometheus histograms; process-cumulative,
+    # the CLI takes the before/after delta itself). The CLI checks this
+    # attribute before enabling --server-metrics. Adapters that have not
+    # implemented a metrics query yet (MCP, Mem0) lack the attribute; it
+    # describes this adapter, not what the backend server itself can expose.
+    supports_server_metrics = True
 
     def __init__(
         self,
@@ -86,6 +94,16 @@ class MemMachineClient:
 
     async def health(self) -> dict[str, Any]:
         return await self._transport.request("GET", "/api/v2/health")
+
+    async def server_metrics_snapshot(self) -> str:
+        """Raw Prometheus exposition text from the server under test.
+
+        Called by the CLI's snapshot collector, not by the load core. Raises
+        like any other request failure (RestError / timeout); the collector
+        swallows it -- a missing metrics endpoint degrades the report, never
+        the run.
+        """
+        return await self._transport.request_text("GET", "/api/v2/metrics")
 
     # -- LTMClient --------------------------------------------------------
 

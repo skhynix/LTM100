@@ -339,8 +339,48 @@ Recording:
 - **Optional**: NDJSON streaming (large scale), enabled via flag.
 - Percentiles computed post-run by the nearest-rank method (no numpy).
 
-Server-side resource metrics are **not** collected here; the server exports
-its own (e.g. Prometheus) and is scraped separately.
+Server-side **resource** metrics (CPU/mem/IO) are not collected here. Server-side
+**latency** metrics, however, can be pulled into the report opt-in — see §7.3.
+
+### 7.3 Server-side latency metrics (`--server-metrics`)
+
+A benchmark's client latency is the server's latency plus queueing; to attribute
+a slow search to a server phase (embedding call vs. vector query vs. reranking)
+the server has to say so itself. A backend that exposes its own Prometheus
+metrics endpoint declares it with the class attribute
+`supports_server_metrics`, and the CLI scrapes it — two snapshots bracketing
+the run, and every histogram reported as the difference.
+
+- **Declared, not guessed.** `--server-metrics` on a backend without the
+  attribute warns and runs without the section; on a backend that declares it
+  but whose endpoint fails (older build), the pre-run probe disables it the
+  same way. Neither case costs the run anything.
+- **Deltas, because Prometheus counters are cumulative.** A negative delta is
+  a counter reset (container restart mid-run): the series is excluded with a
+  warning rather than averaged into a wrong number. `Δcount == 0` reads
+  "not executed"; a quantile landing in the `+Inf` bucket reads "beyond
+  buckets" rather than being extrapolated.
+- **The window is the measured window** (pre-ingest and teardown excluded) via
+  runner measure-hooks. With `--procs > 1` the parent cannot see inside the
+  shards' loops, so its snapshots bracket the whole run and the section says
+  `window: "whole_run"`.
+- **What is reported**: MemMachine's five add-pipeline phases
+  (segmentation, derivation, embedding, segment_store, vector_store), four
+  search phases (embedding, vector_query, segment_query, scoring), and the two
+  request-level `http_request_duration_seconds` paths — mean from `Δsum/Δcount`,
+  p50/p90/p99 interpolated inside the server's own bucket edges (resolution is
+  therefore the server's, and phases faster than the smallest bucket carry no
+  distribution). The full scrape, including the secondary component metrics
+  (embedder, vector store, segment store, ...) used for cause attribution,
+  goes to `server_metrics_raw.json`; the table goes to
+  `summary.json["server_metrics"]` and `server_metrics.csv`.
+- **The row table belongs to the current backend.** The phase/http series
+  listed above are MemMachine's; the parser, the delta arithmetic, and the
+  report writers behind it know nothing of that, and a second backend that
+  implements the metrics query contributes its own row table in place of
+  this one.
+- **Observation never breaks observation**: a snapshot failure mid-run yields
+  `status: "failed"` in the section and a normal benchmark report.
 
 ## 8. Run Lifecycle
 
@@ -356,7 +396,9 @@ its own (e.g. Prometheus) and is scraped separately.
 6. **Drain** — in-flight requests complete (or timeout).
 7. **Teardown** (`LTMClient.teardown`, `delete=True`) — optional per run;
    also exposed as a standalone cleanup command.
-8. **Aggregate & report** — summary JSON/CSV + optional raw NDJSON.
+8. **Aggregate & report** — summary JSON/CSV + optional raw NDJSON + optional
+   server-metrics section (§7.3), whose snapshots are taken inside step 5's
+   boundaries when `--server-metrics` is on.
 
 Termination: count-based (total K ops) **or** time-based (T seconds). Ramp-up
 is optional; warm-up time is excluded from steady-state metrics.

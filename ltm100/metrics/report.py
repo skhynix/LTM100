@@ -17,13 +17,75 @@ from ltm100.core.op import OpResult
 
 
 def write_summary_json(
-    summary: dict[str, Any], path: str | Path, *, meta: dict[str, Any] | None = None
+    summary: dict[str, Any],
+    path: str | Path,
+    *,
+    meta: dict[str, Any] | None = None,
+    server_metrics: dict[str, Any] | None = None,
 ) -> None:
-    """Write the aggregated summary (plus optional run metadata) as JSON."""
-    payload = {"meta": meta or {}, "summary": summary}
+    """Write the aggregated summary (plus optional run metadata) as JSON.
+
+    `server_metrics` is the --server-metrics section (without its `raw` block,
+    which belongs in server_metrics_raw.json); None omits the key entirely so
+    a flag-free run's summary.json is byte-identical to before the feature.
+    """
+    payload: dict[str, Any] = {"meta": meta or {}, "summary": summary}
+    if server_metrics is not None:
+        payload["server_metrics"] = server_metrics
     Path(path).parent.mkdir(parents=True, exist_ok=True)
     with open(path, "w", encoding="utf-8") as f:
         json.dump(payload, f, indent=2)
+
+
+def write_server_metrics(server_metrics: dict[str, Any], out_dir: str | Path) -> None:
+    """Write the --server-metrics outputs into the run's report directory.
+
+    `server_metrics.csv` mirrors the summary section's rows (the phase/http
+    latency table) for spreadsheet use. `server_metrics_raw.json` carries the
+    complete parsed snapshots -- every series the server exposed, including
+    the secondary component metrics (embedder, vector store, segment store,
+    ...) the summary table deliberately leaves out: cause-attribution is a
+    reading task for the raw file, not a row per series in the report.
+    """
+    out = Path(out_dir)
+    out.mkdir(parents=True, exist_ok=True)
+
+    def num(value: Any) -> str:
+        if value is None:
+            return ""
+        return f"{value:.6f}" if isinstance(value, float) else str(value)
+
+    with open(out / "server_metrics.csv", "w", newline="", encoding="utf-8") as f:
+        w = csv.writer(f)
+        w.writerow(
+            [
+                "series",
+                "delta_count",
+                "delta_sum_s",
+                "mean_s",
+                "p50_s",
+                "p90_s",
+                "p99_s",
+                "note",
+            ]
+        )
+        for row in server_metrics.get("rows", []):
+            w.writerow(
+                [
+                    row.get("series", ""),
+                    num(row.get("delta_count")),
+                    num(row.get("delta_sum_s")),
+                    num(row.get("mean_s")),
+                    num(row.get("p50")),
+                    num(row.get("p90")),
+                    num(row.get("p99")),
+                    row.get("note", ""),
+                ]
+            )
+    raw = server_metrics.get("raw")
+    if raw is not None:
+        with open(out / "server_metrics_raw.json", "w", encoding="utf-8") as f:
+            json.dump(raw, f, indent=2)
 
 
 def write_summary_csv(summary: dict[str, Any], path: str | Path) -> None:
@@ -142,4 +204,9 @@ def write_raw_ndjson(results: list[OpResult], path: str | Path) -> None:
             f.write(json.dumps(row) + "\n")
 
 
-__all__ = ["write_raw_ndjson", "write_summary_csv", "write_summary_json"]
+__all__ = [
+    "write_raw_ndjson",
+    "write_server_metrics",
+    "write_summary_csv",
+    "write_summary_json",
+]

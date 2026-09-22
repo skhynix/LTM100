@@ -40,6 +40,10 @@ Implemented:
   `--filter`).
 - Reports: summary JSON/CSV + optional raw NDJSON, with per-op
   `items.empty_rate` and the server build recorded in `meta.build`.
+- Server-side latency metrics: `--server-metrics` scrapes the server's own
+  Prometheus histograms around the measured window and reports per-phase
+  add/search breakdowns; an adapter implements the query to declare it
+  (currently MemMachine REST), others warn and run without it.
 
 Planned (see [DESIGN.md](./DESIGN.md) for the full roadmap):
 - Per-user in-flight > 1; per-user-group finer control;
@@ -221,6 +225,12 @@ ltm100 run --config examples/memmachine.yaml \
 - `--user-gap SECONDS`: (chat-replay) mean user think/typing time before the
   next turn (Exponential; 0 = back-to-back, default). All users.
 - `--preingest` / `--preingest-fraction F`: pre-fill memories before the run.
+- `--server-metrics`: scrape the server's Prometheus metrics before/after the
+  measured window and report per-phase latency deltas (`server_metrics.csv` +
+  a `server_metrics` section in `summary.json`). Requires an adapter that
+  implements the query (currently MemMachine REST); others warn and continue
+  without it. With `--procs > 1` the window becomes the whole run (see
+  Reports).
 - `--raw`: also write per-request `raw.ndjson`.
 - `--no-delete-on-exit`: keep per-user state after the run.
 
@@ -278,6 +288,16 @@ With `--output DIR`, LTM100 writes:
 - `summary.csv` — the same summary as a flat table, with an overall `all` row
   (throughput/qps only; latency cells blank since mixing add/search latencies is
   ambiguous).
+- `server_metrics.csv` / `server_metrics_raw.json` (with `--server-metrics`) —
+  the server's own latency breakdown for the window: one row per phase/http
+  series (`delta_count`, `delta_sum_s`, `mean_s`, `p50_s`/`p90_s`/`p99_s`
+  interpolated inside the server's bucket edges, `note` for resets,
+  not-executed series, and beyond-buckets quantiles), plus the complete
+  before/after scrapes as parsed JSON (secondary component metrics — embedder,
+  vector store, segment store, ... — live only here). The same rows without
+  `raw` appear under `server_metrics` in `summary.json`. With `--procs 1` the
+  window is the measured window; with `--procs > 1` it is the whole run
+  (`window: "whole_run"`, pre-ingest included).
 - `raw.ndjson` (with `--raw`) — one line per request.
 
 ## Cleanup per-user state
