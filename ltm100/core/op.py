@@ -36,6 +36,15 @@ class Op:
     group: str = ""
     # Concurrent chat lane within one backend user. None for other workloads.
     session_id: int | None = None
+    # Optional provenance; avoid allocating a mapping for ordinary workloads.
+    context: dict[str, Any] | None = None
+
+
+@dataclass(frozen=True)
+class Wait:
+    """A timeline pause with no backend request or operation-budget cost."""
+
+    delay: float = 0.0
 
 
 @dataclass(frozen=True)
@@ -51,6 +60,7 @@ class OpResult:
     n_items: int = 0  # items stored (add) or results returned (search)
     group: str = ""  # workload-profile group, when configured
     session_id: int | None = None
+    context: dict[str, Any] | None = None
 
 
 class Scenario(Protocol):
@@ -63,7 +73,7 @@ class Scenario(Protocol):
         user: UserId,
         dataset: DatasetAdapter,
         rng_state: dict[str, Any],
-    ) -> Iterator[Op]:
+    ) -> Iterator[Op | Wait]:
         """Yield the sequence of ops for this user, in order.
 
         `rng_state` carries the seeded RNG state so schedules are
@@ -82,4 +92,4 @@ class Scenario(Protocol):
         ...
 
 
-__all__ = ["Op", "OpResult", "OpType", "Scenario"]
+__all__ = ["Op", "OpResult", "OpType", "Scenario", "Wait"]

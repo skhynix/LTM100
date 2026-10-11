@@ -14,9 +14,9 @@ from collections.abc import Iterator, Sequence
 from pathlib import Path
 from typing import Any
 
-from ltm100.adapters.datasets.longmemeval import _split_chunks
 from ltm100.agent import AgentMessage, AgentTask, AgentToolCall
 from ltm100.common import MemoryItem, UserId
+from ltm100.text import split_chunks
 
 DATASET_ID = "nebius/SWE-rebench-openhands-trajectories"
 DEFAULT_REVISION = "35455389ab51bf5e2306bfd436ef72d0f98bf882"
@@ -206,7 +206,7 @@ class NebiusAdapter:
                 content = _message_content(
                     message, task.final_response if terminal else None
                 )
-                for chunk in _split_chunks(content, self.chunk_chars):
+                for chunk in split_chunks(content, self.chunk_chars):
                     yield MemoryItem(content=chunk, producer=user, role=message.role)
 
 

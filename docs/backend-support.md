@@ -12,8 +12,9 @@ All four adapters use the same runner and support:
 - `add-load`, `search-load`, and `mixed` with Synthetic, LongMemEval, or Nebius;
   `chat-replay` with structured dialogue data such as LongMemEval. Synthetic
   has no dialogue turns and cannot run `chat-replay` on any backend.
-  Nebius likewise exposes agent tasks rather than chatbot turns; its generic
-  corpus workloads do not replay hook/MCP integration policies.
+  Nebius exposes agent tasks rather than chatbot turns and supports
+  [`coding-agent`](coding-agent.md) hook/MCP/hybrid policies. The policy does
+  not require MCP transport; all adapter limitations below still apply.
 - Closed/open load models, user counts, global request concurrency, open-model
   arrival/session/queue controls, and closed-model ramp-up.
 - Chat profiles: group-specific `top_k`, closed `concurrent_sessions`, open

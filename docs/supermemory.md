@@ -97,11 +97,12 @@ pytest -q tests/test_supermemory_e2e.py
 ```
 
 The opt-in tests use unique prefixes and exercise direct add/search, metadata
-filters and provenance, tenant isolation, cleanup, all four scenarios,
+filters and provenance, tenant isolation, cleanup, the four original scenarios,
 closed/open profiled chat, multiprocess execution, warm-up, raw/client time
 series, unsupported server metrics, and isolated memory-growth points. Without
 the explicit URL they are skipped. API-contract unit tests run without any
-external server.
+external server. Coding-agent additionally exercises this adapter through
+API-contract tests; live coding-agent verification currently uses MemMachine.
 
 Local verification can use a deterministic OpenAI-compatible embedding endpoint
 instead of a paid model. That exercises the official server's storage and search

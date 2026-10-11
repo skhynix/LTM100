@@ -1,0 +1,23 @@
+# Coding-agent policy and modeled timing, independent of backend transport.
+# Example:
+#   ltm100 run --config examples/nebius.yaml --scenario coding-agent \
+#       --agent-profile examples/agent-profile.yaml --users 10 \
+#       --duration 300 --seed 0 --top-k 20 --raw --output out/coding-agent
+# These times are illustrative assumptions, not measured Nebius durations.
+version: 1
+integration: hybrid                 # hook | mcp | hybrid
+hook_scope: user-facing              # user-facing | all-steps
+search_probability: 0.25             # MCP search before ordinary agent steps
+add_probability: 0.25                # MCP add after completed tool results
+agent_step_time: 2.0
+agent_step_time_variation: 0.5        # bounded Uniform: 1..3 seconds
+tool_time: 1.0
+tool_time_variation: 0.5              # bounded Uniform: 0.5..1.5 seconds
+tool_times:                          # same variation ratio as tool_time
+  execute_bash: 3.0
+  str_replace_editor: 0.5
+task_gap: 30.0                       # closed only; between tasks, including wrap
+task_gap_variation: 0.5
+task_repeat: true
+chunk_chars: 3000                    # characters, not bytes or tokens
+query_chars: 3000

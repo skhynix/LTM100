@@ -151,7 +151,8 @@ class DatasetAdapter(Protocol):
   users. A finite `memory_stream` projects activity for generic workloads;
   the optional `AgentDataset.task_stream` in `ltm100/agent.py` retains independent
   `AgentTask` records. It does not imply dialogue support or an LTM call policy.
-  See [Nebius](docs/nebius.md); coding-agent scheduling is a separate extension.
+  See [Nebius](docs/nebius.md); [coding-agent replay](docs/coding-agent.md)
+  supplies the hook/MCP/hybrid scheduling policy.
 
 ### 4.2 LTMClient (backend adapter)
 
@@ -285,15 +286,15 @@ class Scenario(Protocol):
 
     def plan(
         self, user: UserId, dataset: DatasetAdapter, rng_state: dict
-    ) -> Iterator[Op]:
-        """Yield the sequence of ops for this user, in order. `rng_state`
+    ) -> Iterator[Op | Wait]:
+        """Yield requests or request-free timeline waits in order. `rng_state`
         carries the seeded RNG state so schedules are reproducible."""
 
     def validate(self, dataset: DatasetAdapter) -> None: ...
 ```
 
-Initial scenarios (`chat-replay` is the primary workload; the rest are
-auxiliary load probes):
+Available scenarios (`chat-replay` models chatbot integration and
+`coding-agent` models recorded agent activity; the rest are raw load probes):
 1. **`chat-replay`**: replay a chatbot-with-LTM workload over the dataset's
    `turn_stream` (recall before a user turn, then ingest the turn), with a
    configurable recall cadence (`search_every`) and LLM answer / user think
@@ -306,14 +307,23 @@ auxiliary load probes):
    `search_weight`), needs no `turn_stream` so it works with the synthetic
    dataset. Under the open model its per-session slice gives a quick
    congestion probe; under closed it loops like any other scenario.
+5. **`coding-agent`**: replay structured `task_stream` trajectories under
+   hook/MCP/hybrid memory policies, with request-free agent/tool/task waits.
+   Tools are never executed and search results do not change recorded actions.
 
 Every scenario runs under **both** closed and open load models. The op mix
 (add vs search) is owned by the Scenario plan for **both** models — the open
 model's arriving sessions consume a bounded number of ops from the same
 `plan()` interface the closed model loops over. There is no runner-level
 op-mix weight; `mixed` takes a `search_weight` constructor param instead.
-All scenario plans are **infinite** (they wrap their stream), so a duration
-run sustains load instead of going idle when a finite stream is exhausted.
+Ordinary load probes wrap their source streams to sustain duration runs.
+Plans may also be finite: profiled chat preserves open conversation boundaries,
+and coding-agent consumes one task per open admission or stops after the closed
+user's task pool when `task_repeat: false`. `Wait` events advance the modeled
+timeline without request slots, operation budgets, or latency records. Pure
+count-based closed runs require enough operations; combined duration/ops limits
+allow the duration to stop dispatch earlier. See [scenarios](docs/scenarios.md)
+and [coding-agent replay](docs/coding-agent.md).
 
 ## 7. Metrics
 
@@ -610,3 +620,19 @@ this design document.
 - **Closed model**: fixed number of concurrent users, each looping.
 - **Open model**: users arrive over time; concurrency is emergent.
 - **Op**: a single `add` or `search` request.
+
+## 15. Coding-agent extension
+
+`coding-agent` consumes the optional `AgentDataset.task_stream` capability;
+existing datasets and scenarios retain their contracts. Source actions remain
+data and are never executed. Hook/MCP policy and timing live in a separate
+agent profile, independent of backend transport.
+
+The plan may yield `Wait` alongside ordinary `Op` requests. A `Wait` advances
+the client timeline without reserving request slots, consuming operation
+budgets, or creating metrics. Optional scenario hooks prepare one task at open
+admission and reset cursors at phase boundaries. Existing scenarios do not
+implement those hooks. Coding-agent request provenance is carried in optional
+`Op`/`OpResult.context` and emitted only when present in raw output; it is not
+backend metadata. See [Coding-agent replay](docs/coding-agent.md) for the full
+policy, repetition, timing, and reporting contracts.

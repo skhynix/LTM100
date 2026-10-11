@@ -13,7 +13,7 @@ Current release: **v0.4.3**
 ## Highlights
 
 - Closed and open load models for fixed-concurrency and arrival-driven tests.
-- Four scenarios: `chat-replay`, `add-load`, `search-load`, and `mixed`.
+- Chatbot and coding-agent replay plus focused add/search/mixed workloads.
 - Weighted chat workload profiles with group-specific recall, timing, and
   closed/open session controls.
 - Bounded admission and rejection accounting for overload experiments.
@@ -71,6 +71,7 @@ load controls, backend limitations, reports, and cleanup. The
 | Scenario | Purpose | Dataset requirement |
 |---|---|---|
 | `chat-replay` | Replay chatbot recall and conversation ingestion | Structured `turn_stream` such as LongMemEval |
+| `coding-agent` | Replay agent trajectories with hook/MCP memory policies | Structured `task_stream` such as Nebius |
 | `add-load` | Measure pure memory-ingest throughput | Any dataset |
 | `search-load` | Measure search throughput and latency | Any dataset; pre-ingest recommended |
 | `mixed` | Generate a configurable add/search mixture | Any dataset; pre-ingest recommended |
@@ -81,8 +82,9 @@ Every scenario runs under both load models:
 - `open`: sessions arrive through a Poisson process and exercise the bounded
   queue and rejection policy.
 
-LongMemEval supports all four scenarios. The bundled synthetic dataset supports
-the three scenarios that do not require structured dialogue turns.
+LongMemEval supports `chat-replay`, `add-load`, `search-load`, and `mixed`.
+Synthetic supports the three generic corpus workloads. `coding-agent` requires
+structured agent tasks such as Nebius.
 
 ## Adapters
 
@@ -92,7 +94,8 @@ Datasets:
   user/assistant turns for `chat-replay`.
 - **Synthetic** — deterministic, download-free data for load probes.
 - **Nebius** — structured coding-agent trajectories and corpus streams for
-  generic add/search workloads; see the [dataset guide](docs/nebius.md).
+  generic add/search workloads and `coding-agent`; see the
+  [dataset guide](docs/nebius.md) and [replay guide](docs/coding-agent.md).
 
 Backends:
 
@@ -121,6 +124,8 @@ percentiles. See [Reports](docs/running.md#reports) for the output contract.
 
 ## Documentation
 
+- [Coding-agent replay](docs/coding-agent.md) — hook/MCP policies and
+  simulated timing.
 - [Running guide](docs/running.md) — configuration, commands, flags, reports,
   and cleanup.
 - [Backend support](docs/backend-support.md) — shared features, adapter limits,

@@ -3,10 +3,11 @@
 Each Scenario turns a per-user dataset stream into a plan of Ops with delays.
 The closed model loops back-to-back (delay=0) unless a scenario adds think
 time; the open model consumes a bounded number of ops per arriving session
-(see the runner's `_open_session`). Every scenario's plan is **infinite**
-(it wraps its underlying stream), so a duration run sustains load instead of
-going idle once a finite stream is exhausted; the runner bounds consumption
-via duration/ops (closed) or session_ops (open).
+(see the runner's `_open_session`). The original scenarios wrap their
+underlying streams to sustain load; coding-agent can also stop at task
+exhaustion. The runner bounds request consumption via duration/ops (closed)
+or session_ops (open). Request-free Wait events advance the agent timeline
+without consuming those operation budgets.
 
 Search queries are **content-derived**: built from the user's own
 `memory_stream` items (one query per stored unit by default). `search-load`
@@ -16,7 +17,9 @@ single query (which would warm a server result cache and understate latency).
 `chat-replay` instead derives each recall query from the upcoming user turn's
 content. No scenario consumes a separate evaluation `query_stream`.
 
-Scenarios here:
+Scenarios here (coding-agent is implemented in its own module):
+  - CodingAgent: recorded task replay under hook/MCP policies and simulated
+                 agent/tool timing, preserving each open task boundary.
   - ChatReplay:   the primary workload — replay a chatbot-with-LTM integration
                   over the dataset's turn_stream (recall before a user turn,
                   then ingest the turn), with a configurable recall cadence.
@@ -40,6 +43,7 @@ from weakref import WeakKeyDictionary
 
 from ltm100.common import DatasetAdapter, MemoryItem, QueryItem, Turn, UserId
 from ltm100.core.chat_profile import ChatProfile, ChatSettings
+from ltm100.core.coding_agent import CodingAgent
 from ltm100.core.op import Op, OpType, Scenario
 
 _MEMO: WeakKeyDictionary[DatasetAdapter, dict[UserId, list[MemoryItem]]] = (
@@ -605,6 +609,7 @@ class ChatReplay:
 
 
 SCENARIOS: dict[str, type] = {
+    CodingAgent.name: CodingAgent,
     ChatReplay.name: ChatReplay,
     AddLoad.name: AddLoad,
     SearchLoad.name: SearchLoad,

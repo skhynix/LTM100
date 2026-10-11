@@ -1,9 +1,14 @@
 # Agent trajectory corpus + MemMachine REST backend.
-# This is a generic corpus load, not a coding-agent hook/MCP replay.
+# Use coding-agent for policy replay; add/search/mixed use the corpus view.
 # Nebius does not expose chatbot turns and cannot run chat-replay.
 #
 # Install the dataset extra for Hugging Face or local Parquet:
 #   pip install -e ".[datasets]"
+#
+# Agent replay (the profile is independent of backend transport):
+#   ltm100 run --config examples/nebius.yaml --scenario coding-agent \
+#       --agent-profile examples/agent-profile.yaml --users 10 \
+#       --duration 300 --seed 0 --top-k 20
 #
 # Add workload:
 #   ltm100 run --config examples/nebius.yaml \

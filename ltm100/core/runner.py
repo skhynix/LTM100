@@ -28,10 +28,11 @@ import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from itertools import islice
+from typing import Any
 
 from ltm100.common import DatasetAdapter, LTMClient, UserId
 from ltm100.core.config import RunConfig
-from ltm100.core.op import Op, OpResult, OpType, Scenario
+from ltm100.core.op import Op, OpResult, OpType, Scenario, Wait
 from ltm100.metrics.recorder import InMemoryRecorder, MetricsRecorder
 
 logger = logging.getLogger(__name__)
@@ -161,6 +162,10 @@ class LoadRunner:
         users = self.shard_users(all_users)
         self.users = users
 
+        validate_config = getattr(self.scenario, "validate_config", None)
+        if validate_config is not None:
+            validate_config(self.config)
+
         # Let the scenario reject a misconfigured dataset loudly, before any
         # setup/provisioning or user runs. A plan-time raise would be swallowed
         # by the gather(return_exceptions=True) in the user loops.
@@ -220,6 +225,9 @@ class LoadRunner:
         may be zero when an exact operation count is the termination condition.
         """
         self._start_time = time.monotonic()
+        reset_phase = getattr(self.scenario, "reset_phase", None)
+        if reset_phase is not None:
+            reset_phase()
         # deadline is None for pure count-based closed runs (no time bound); the
         # open model always has a duration (validated in RunConfig).
         deadline = self._start_time + duration if duration > 0 else None
@@ -273,7 +281,15 @@ class LoadRunner:
                         )
                     )
                 )
-        await asyncio.gather(*tasks, return_exceptions=True)
+        outcomes = await asyncio.gather(*tasks, return_exceptions=True)
+        self._check_plan_outcomes(outcomes)
+
+    def _check_plan_outcomes(self, outcomes: list[Any]) -> None:
+        """Opt-in strict plan failures; existing scenarios retain their behavior."""
+        if getattr(self.scenario, "strict_plans", False):
+            for outcome in outcomes:
+                if isinstance(outcome, BaseException):
+                    raise outcome
 
     def _session_ids(self, user: UserId) -> list[int | None]:
         session_ids = getattr(self.scenario, "session_ids", None)
@@ -295,48 +311,69 @@ class LoadRunner:
         next_user = 0
         active_sessions: dict[UserId, set[int]] = {user: set() for user in users}
 
-        t = self._start_time
-        while not self._should_stop() and not self._deadline_reached(deadline):
-            # Inter-arrival ~ Exponential(rate).
-            gap = rng.expovariate(rate)
-            t += gap
-            now = time.monotonic()
-            if t > deadline:
-                break
-            wait = max(0.0, t - now)
-            if not await self._wait_delay(wait, deadline) or self._should_stop():
-                break
-            user = users[next_user % len(users)]
-            next_user += 1
-            group_for = getattr(self.scenario, "session_group", None)
-            group = group_for(user) if group_for is not None else ""
-            if self._deadline_reached(deadline):
-                break
-            if self._record_results:
-                self.session_stats.record("offered", group)
-            admission = self._admit_open_session(user, active_sessions)
-            if admission is None:
+        try:
+            t = self._start_time
+            while not self._should_stop() and not self._deadline_reached(deadline):
+                # Inter-arrival ~ Exponential(rate).
+                gap = rng.expovariate(rate)
+                t += gap
+                now = time.monotonic()
+                if t > deadline:
+                    break
+                wait = max(0.0, t - now)
+                if not await self._wait_delay(wait, deadline) or self._should_stop():
+                    break
+                user = users[next_user % len(users)]
+                next_user += 1
+                available = getattr(self.scenario, "session_available", None)
+                if available is not None and not available(user, self.dataset):
+                    # Exhausted finite sources are not congestion rejections.
+                    continue
+                group_for = getattr(self.scenario, "session_group", None)
+                group = group_for(user) if group_for is not None else ""
+                if self._deadline_reached(deadline):
+                    break
                 if self._record_results:
-                    self.session_stats.record("rejected", group)
-                continue
-            session_id, session_count = admission
-            if self._record_results:
-                self.session_stats.record("admitted", group)
-            session_tasks.append(
-                asyncio.create_task(
-                    self._open_session(
-                        user,
-                        deadline,
-                        session_id=session_id,
-                        session_count=session_count,
-                        active_sessions=active_sessions,
+                    self.session_stats.record("offered", group)
+                admission = self._admit_open_session(user, active_sessions)
+                if admission is None:
+                    if self._record_results:
+                        self.session_stats.record("rejected", group)
+                    continue
+                session_id, session_count = admission
+                try:
+                    prepare = getattr(self.scenario, "prepare_session", None)
+                    session_state = prepare(user, self.dataset) if prepare else None
+                    if self._record_results:
+                        self.session_stats.record("admitted", group)
+                    session_tasks.append(
+                        asyncio.create_task(
+                            self._open_session(
+                                user,
+                                deadline,
+                                session_id=session_id,
+                                session_count=session_count,
+                                active_sessions=active_sessions,
+                                session_state=session_state,
+                            )
+                        )
                     )
-                )
-            )
 
-        # Let in-flight sessions finish (bounded by session_ops, so finite).
-        if session_tasks:
-            await asyncio.gather(*session_tasks, return_exceptions=True)
+                except BaseException:
+                    # No task owns this reservation if preparation fails.
+                    if session_id is not None:
+                        active_sessions[user].discard(session_id)
+                    raise
+        except BaseException:
+            # Stop admissions and further dispatch before the caller tears down
+            # backend state. Already executing requests are allowed to finish.
+            self._stop.set()
+            raise
+        finally:
+            # Preparation errors must not bypass session draining. Preserve the
+            # original error; inspect plan outcomes only after a normal arrival loop.
+            outcomes = await asyncio.gather(*session_tasks, return_exceptions=True)
+        self._check_plan_outcomes(outcomes)
 
     def _admit_open_session(
         self,
@@ -365,6 +402,7 @@ class LoadRunner:
         session_id: int | None,
         session_count: int | None,
         active_sessions: dict[UserId, set[int]],
+        session_state: dict[str, Any] | None = None,
     ) -> None:
         """One arriving user's session: a bounded number of ops then exit.
 
@@ -377,26 +415,38 @@ class LoadRunner:
         if session_id is not None:
             rng_state["session_id"] = session_id
             rng_state["session_count"] = session_count
-        plan = self.scenario.plan(user, self.dataset, rng_state)
+        if session_state is not None:
+            rng_state.update(session_state)
         try:
-            for _ in range(n_ops):
+            plan = self.scenario.plan(user, self.dataset, rng_state)
+            consumed = 0
+            while consumed < n_ops:
                 if self._should_stop() or self._deadline_reached(deadline):
                     return
                 try:
                     op = next(plan)
                 except StopIteration:
                     return
+                if isinstance(op, Wait):
+                    if not await self._wait_event(op, deadline):
+                        return
+                    continue
+                consumed += 1
                 if not await self._wait_delay(op.delay, deadline):
+                    return
+                if self._should_stop():
                     return
                 acquired = await self._acquire_slot_bounded(deadline)
                 if acquired is None:
                     return
                 if not acquired:
-                    if self._deadline_reached(deadline):
+                    if self._should_stop() or self._deadline_reached(deadline):
                         return
                     await self._record_rejected(op, user)
                     continue
                 try:
+                    if self._should_stop():
+                        return
                     await self._execute(user, op)
                 finally:
                     self._release_slot()
@@ -450,6 +500,7 @@ class LoadRunner:
             n_items=0,
             group=op.group,
             session_id=op.session_id,
+            context=op.context,
         )
         if self._record_results:
             await self.recorder.record(result)
@@ -550,6 +601,12 @@ class LoadRunner:
             )
         return not self._deadline_reached(deadline)
 
+    async def _wait_event(self, event: Wait, deadline: float | None) -> bool:
+        """Advance a non-request timeline, including cooperative zero waits."""
+        if event.delay == 0:
+            await asyncio.sleep(0)
+        return await self._wait_delay(event.delay, deadline)
+
     async def _acquire_global_slot(self, deadline: float | None) -> bool:
         """Acquire before the deadline without cancelling an executing request."""
         if self._deadline_reached(deadline):
@@ -609,6 +666,16 @@ class LoadRunner:
                 return
             if self._deadline_reached(deadline):
                 return
+            if isinstance(op, Wait):
+                if (
+                    self._record_results
+                    and self.config.ops > 0
+                    and self._ops_done >= self.config.ops
+                ):
+                    return
+                if not await self._wait_event(op, deadline):
+                    return
+                continue
             if not await self._reserve_op():
                 self._stop.set()
                 return
@@ -656,6 +723,7 @@ class LoadRunner:
             n_items=n_items,
             group=op.group,
             session_id=op.session_id,
+            context=op.context,
         )
         if self._record_results:
             await self.recorder.record(result)

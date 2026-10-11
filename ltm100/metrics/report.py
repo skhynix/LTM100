@@ -251,6 +251,8 @@ def write_raw_ndjson(results: list[OpResult], path: str | Path) -> None:
                 row["group"] = r.group
             if r.session_id is not None:
                 row["session_id"] = r.session_id
+            if r.context:
+                row["context"] = r.context
             f.write(json.dumps(row) + "\n")
 
 

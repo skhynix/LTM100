@@ -18,14 +18,14 @@ Start from [`examples/`](../examples/README.md), update `backend.base_url`, and
 verify that the target LTM service is running. Scenario selection stays on the
 CLI so the same backend/dataset config can drive multiple workloads.
 
-LongMemEval supports all four scenarios. Synthetic data supports `add-load`,
-`search-load`, and `mixed`, but not `chat-replay`, because it has no structured
-dialogue `turn_stream`.
+LongMemEval supports `chat-replay`, `add-load`, `search-load`, and `mixed`.
+Synthetic data supports the three generic corpus workloads, but not
+`chat-replay`, because it has no structured dialogue `turn_stream`.
 
 Nebius agent trajectories support the same generic add/search workloads via
-`examples/nebius.yaml`. They preserve structured tasks for a future
-coding-agent scenario and intentionally reject `chat-replay`. See the
-[Nebius guide](nebius.md) for loading, user mapping, and corpus size controls.
+`examples/nebius.yaml`. They also provide structured tasks for `coding-agent`
+and intentionally reject `chat-replay`. See the [Nebius guide](nebius.md) for
+loading, user mapping, and corpus size controls.
 
 ## Workload examples
 
@@ -427,3 +427,11 @@ may remain eventually consistent briefly after a confirmed delete response.
   the bottleneck.
 - Treat REST, MCP, extraction-enabled, and extraction-disabled paths as
   different workloads unless their server-side behavior is equivalent.
+
+## Coding-agent replay
+
+Use `--scenario coding-agent` with a dataset providing `task_stream`, such as
+Nebius. `--agent-profile` supplies hook/MCP policies and simulated agent/tool
+waits; common load and report flags retain their meanings. See the
+[coding-agent guide](coding-agent.md) for commands, defaults, task boundaries,
+and the distinction between memory-use policy and backend transport.

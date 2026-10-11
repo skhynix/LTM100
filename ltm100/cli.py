@@ -22,6 +22,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from ltm100.config import build_backend, build_dataset, load_config
+from ltm100.core.agent_profile import load_agent_profile
 from ltm100.core.chat_profile import load_chat_profile
 from ltm100.core.config import RunConfig
 from ltm100.core.memory_growth import (
@@ -95,12 +96,18 @@ def _build_run_config(args: argparse.Namespace) -> RunConfig:
 
 
 def _build_scenario(args: argparse.Namespace):
+    agent_profile = getattr(args, "agent_profile", None)
+    if agent_profile and args.scenario != "coding-agent":
+        raise ValueError("--agent-profile is only valid with --scenario coding-agent")
     if args.chat_profile and args.scenario != "chat-replay":
         raise ValueError("--chat-profile is only valid with --scenario chat-replay")
     if args.query_limit is not None and args.scenario != "search-load":
         raise ValueError("--query-limit is only valid with --scenario search-load")
     kwargs: dict[str, Any] = {}
-    if args.scenario == "mixed":
+    if args.scenario == "coding-agent":
+        kwargs["profile"] = load_agent_profile(agent_profile)
+        kwargs["top_k"] = args.top_k
+    elif args.scenario == "mixed":
         kwargs["search_weight"] = args.search_weight
         kwargs["think"] = args.think
         kwargs["top_k"] = args.top_k
@@ -127,7 +134,7 @@ def _build_scenario(args: argparse.Namespace):
         kwargs["top_k"] = args.top_k
         kwargs["query_limit"] = args.query_limit
     # Every scenario that searches takes the server-side search knobs.
-    if args.scenario in ("mixed", "chat-replay", "search-load"):
+    if args.scenario in ("mixed", "chat-replay", "search-load", "coding-agent"):
         kwargs["expand_context"] = args.expand
         kwargs["filter"] = args.filter
     return get_scenario(args.scenario, **kwargs)
@@ -317,7 +324,7 @@ def _run_metadata(
             session_ops=args.session_ops,
             queue_bound=args.queue_bound,
         )
-    if args.scenario in ("search-load", "mixed", "chat-replay"):
+    if args.scenario in ("search-load", "mixed", "chat-replay", "coding-agent"):
         meta.update(
             top_k=args.top_k,
             expand_context=args.expand,
@@ -325,6 +332,10 @@ def _run_metadata(
         )
     if args.scenario == "search-load":
         meta["query_limit"] = args.query_limit
+    if args.scenario == "coding-agent":
+        meta["agent_profile"] = load_agent_profile(
+            getattr(args, "agent_profile", None)
+        ).metadata()
     if args.preingest and preingest_stats is not None:
         meta["preingest_stats"] = preingest_stats
     if args.scenario == "mixed":
@@ -404,7 +415,10 @@ def _run(args: argparse.Namespace) -> int:
             raise ValueError("--server-metrics-interval requires --output")
     # Validate scenario-specific files and options before probing or mutating
     # the backend. Each shard rebuilds the scenario it will actually run.
-    _build_scenario(args)
+    scenario = _build_scenario(args)
+    validate_config = getattr(scenario, "validate_config", None)
+    if validate_config is not None:
+        validate_config(run_cfg)
     # Each shard tears down the users it drove, which assumes a project per
     # user. With backend.project_id set they all share one, so the first shard
     # to finish would delete it under the others mid-run. Refuse rather than
@@ -648,6 +662,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     run = sub.add_parser("run", parents=[common], help="run a benchmark")
     run.add_argument("--scenario", required=True, help="scenario name")
+    run.add_argument(
+        "--agent-profile",
+        default=None,
+        help="coding-agent: YAML hook/MCP policy and simulated agent/tool timing",
+    )
     g = run.add_mutually_exclusive_group()
     g.add_argument(
         "--duration", type=float, default=0.0, help="measured run seconds (0=off)"
@@ -714,7 +733,7 @@ def build_parser() -> argparse.ArgumentParser:
         type=int,
         default=20,
         help="search top_k: how many memories the backend returns per search "
-        "(search-load, mixed, chat-replay; default 20). Applied uniformly to "
+        "(search-load, mixed, chat-replay, coding-agent; default 20). Applied uniformly to "
         "all users",
     )
     run.add_argument(

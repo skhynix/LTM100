@@ -10,8 +10,9 @@ load generation, and when to use each. For per-scenario data flow, see
 ## The two axes
 
 - **Scenario** — owns the *op mix* (add vs search) and the *data* (which
-  memory content to add, which query to search). It yields an infinite
-  `plan()` of `Op`s.
+  memory content to add, which query to search). Its `plan()` yields `Op`
+  requests and optional `Wait` timeline events. Plans may wrap indefinitely
+  or stop at a source boundary; the scenario owns that choice.
 - **Load model** — owns the *consume schedule*: who consumes the plan, when,
   and for how long. The runner drives this; it never touches the op mix or
   data.
@@ -32,9 +33,10 @@ loops the scenario plan back-to-back:
   into concurrency (a *closed* loop).
 - **`N` is the concurrent user count.** `--users 20` models "20 users always
   connected".
-- **Think time** (`Op.delay`) is the only timing variation. `delay=0`
-  (add-load) is back-to-back; `delay=uniform(0, 0.05)` (chat-replay,
-  mixed) drifts users out of lockstep.
+- **Timing** includes per-request think time (`Op.delay`) and optional
+  request-free `Wait` events. `add-load` is back-to-back; chat-replay models
+  answer/user gaps, while coding-agent models agent/tool/task time. These
+  waits do not occupy request slots or enter request latency/QPS.
 
 Closed models the classic load test: "with N users hammering the server,
 how fast is it?" Use it to measure raw throughput and latency at a fixed
@@ -48,8 +50,10 @@ Sessions *arrive* over time, run a bounded slice, then leave:
   `--arrival-rate λ`. Inter-arrival is `expovariate(λ)` — bursty but with a
   fixed average rate. Sessions keep arriving until `--duration`.
 - **Session lifetime is bounded.** Each arriving session consumes up to
-  `--session-ops` ops from the scenario plan, then the user leaves. Users do
-  not loop forever.
+  `--session-ops` requests from the scenario plan, then the session ends. A
+  finite plan may finish earlier. Coding-agent consumes one assigned task
+  per admission and never crosses into the next task; `Wait` events do not
+  consume this request budget.
 - **Arrival is the input; concurrency is the output.** `λ` fixes how fast
   sessions arrive; *how many run at once* is whatever the server's service
   rate produces. A fast server keeps concurrency low; a slow one lets it
@@ -84,6 +88,18 @@ duration-based, with `--session-ops` limiting each session.
 
 Warm-up applies the same deadline and drain rules, then resets termination
 state before the separate measured duration or operation budget begins.
+
+Coding-agent with `task_repeat: false` can exhaust its assigned task pool
+before the deadline. It permits duration-plus-ops core configurations, but
+rejects pure count-based closed runs because the exact budget may be
+unreachable. See [coding-agent replay](coding-agent.md).
+
+If open admission or source preparation fails, the runner stops admissions
+and further request dispatch, returns an unowned session-lane reservation,
+and drains existing session tasks before propagating the original error.
+Already executing requests may finish; delayed or queued requests do not
+start after that failure. Pending waits remain bounded by the phase deadline.
+The caller can then safely perform teardown and close the transport.
 
 ## Congestion policy (the open model's key output)
 

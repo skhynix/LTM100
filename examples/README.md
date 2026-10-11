@@ -7,18 +7,20 @@ backend. The dataset determines whether `chat-replay` is available.
 |---|---|---|---|
 | `memmachine.yaml` | LongMemEval | MemMachine REST | `chat-replay` |
 | `synthetic.yaml` | Synthetic | MemMachine REST | `add-load`, `search-load`, `mixed` |
-| `nebius.yaml` | Nebius agent trajectory corpus | MemMachine REST | `add-load`, `search-load`, `mixed` |
+| `nebius.yaml` | Nebius agent trajectories | MemMachine REST | `coding-agent`, `add-load`, `search-load`, `mixed` |
 | `memmachine-mcp.yaml` | LongMemEval | MemMachine MCP | `chat-replay` |
 | `mem0.yaml` | Synthetic | Mem0 REST | `add-load`, `search-load`, `mixed` |
 | `supermemory.yaml` | Synthetic | Supermemory REST (direct memories) | `add-load`, `search-load`, `mixed` |
 | `shared-project.yaml` | Synthetic | MemMachine REST | Isolation-scope `add-load`, `search-load`, or `mixed` |
+| `agent-profile.yaml` | Agent policy/timing profile | Used with a Nebius config | Hook/MCP/hybrid `coding-agent` replay |
 | `chat-profile.yaml` | Chat workload profile | Used with a LongMemEval config | Group-specific `chat-replay` load |
 
 `chat-replay` requires a dataset with structured dialogue turns. The two
 `memmachine*.yaml` files use LongMemEval for this purpose. Synthetic
 and Nebius configurations fail validation if paired with `chat-replay`.
-Nebius currently supplies a corpus projection; coding-agent hook/MCP replay
-is a separate planned scenario. See the [dataset guide](../docs/nebius.md).
+Nebius supplies a generic corpus projection and structured tasks for
+`coding-agent`. Pass `--agent-profile examples/agent-profile.yaml` for its
+policy/timing settings; see the [replay guide](../docs/coding-agent.md).
 
 `chat-profile.yaml` is an optional second YAML passed with
 `--chat-profile examples/chat-profile.yaml`. It assigns users deterministically

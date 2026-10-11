@@ -19,9 +19,9 @@ The adapter provides two finite, repeatable views of each user's assigned data:
   existing scenarios.
 
 `chat-replay` is rejected through its existing dialogue capability check:
-agent trajectories do not expose `turn_stream` or `session_stream`. A future
-coding-agent scenario can consume `task_stream` and define hook/MCP policies,
-task repetition, and simulated agent/tool timing separately.
+agent trajectories do not expose `turn_stream` or `session_stream`. The
+[coding-agent scenario](coding-agent.md) consumes `task_stream` and defines
+hook/MCP policies, task repetition, and simulated agent/tool timing separately.
 
 ## Configuration and loading
 
@@ -79,7 +79,7 @@ Repeated calls to either stream reproduce the same finite source view. A new
 initializing the run's users.
 
 The adapter does not loop indefinitely. Existing generic scenarios own their
-usual item/query wrap-around. Future agent task cycling and task gaps belong
+usual item/query wrap-around. Agent task cycling and task gaps belong
 to the coding-agent scenario; they must preserve each trajectory boundary.
 Repeated adds are new requests, and retained storage depends on the backend's
 duplicate handling. Repetition never implies a memory reset.
@@ -111,7 +111,7 @@ Some source `user` messages are framework feedback, such as action-processing
 errors or requests to continue working. Preserve them without assuming they
 are new human prompts. Source roles alone do not define chatbot timing.
 The dataset has no consistent measured message/tool timestamps, so agent
-timing must be modeled by a future scenario.
+timing is modeled by the coding-agent profile, not inferred from the source.
 
 ## Source validation and attribution
 

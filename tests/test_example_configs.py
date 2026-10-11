@@ -13,7 +13,7 @@ RECOMMENDED_SCENARIOS = {
     "memmachine.yaml": ("chat-replay",),
     "memmachine-mcp.yaml": ("chat-replay",),
     "synthetic.yaml": ("add-load", "search-load", "mixed"),
-    "nebius.yaml": ("add-load", "search-load", "mixed"),
+    "nebius.yaml": ("coding-agent", "add-load", "search-load", "mixed"),
     "mem0.yaml": ("add-load", "search-load", "mixed"),
     "supermemory.yaml": ("add-load", "search-load", "mixed"),
     "shared-project.yaml": ("add-load", "search-load", "mixed"),
@@ -67,3 +67,11 @@ def test_example_recommends_a_compatible_scenario(
     else:
         user = dataset.users(1, seed=0)[0]
         assert next(scenario.plan(user, dataset, {"seed": 0})) is not None
+
+
+def test_agent_profile_example_is_valid():
+    from ltm100.core.agent_profile import load_agent_profile
+
+    profile = load_agent_profile(EXAMPLES / "agent-profile.yaml")
+    assert profile.integration == "hybrid"
+    assert profile.agent_step_time_variation == 0.5

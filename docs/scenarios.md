@@ -19,9 +19,11 @@ per-scenario differences small.
 
 ### Users and tenancy
 
-A virtual user is **one asyncio coroutine** in a process (not a container).
-`--users N` spawns N coroutines, each identified by a `UserId` string. By
-default all coroutines run in a single process; `--procs N` shards them across
+A virtual user is a **tenant identity** in a process (not a container).
+`--users N` establishes N identities, each identified by a `UserId` string.
+Closed workloads ordinarily use one coroutine per user; profiled chat may
+use several lanes, and open arrivals create sessions over this tenant pool.
+By default all coroutines run in a single process; `--procs N` shards them across
 N OS processes (each driving a disjoint slice of the users) so a fast server
 is not bottlenecked on one event-loop core.
 
@@ -77,8 +79,9 @@ rate).
 
 Neither the scenarios nor the runner decide *what content* is added or what
 *query* is searched — that comes entirely from the **dataset adapter**.
-A scenario only decides *when* and *how often*; the data is fixed by the
-dataset (and the seed for replication). This keeps the load shape separate
+A scenario selects source content and decides *when* and *how often* to use
+it. Coding-agent additionally formats recorded actions/observations into
+memory bundles; it does not generate or execute new agent actions. This keeps the load shape separate
 from the data shape.
 
 **`add` data — `dataset.memory_stream(user)`** yields `MemoryItem`s, one per
@@ -87,8 +90,8 @@ stored unit. The adapter owns the content; the backend adapter forwards
 
 - **LongMemEval** — a sample's `haystack_sessions` are flattened into turn
   `content`s, each split into <=3000-char chunks on word boundaries. One
-  turn can become several `MemoryItem`s. `role`/`timestamp`/`metadata` are
-  not set; only `content` and `producer` (the `UserId`) are sent. A user's
+  turn can become several `MemoryItem`s. `role` is preserved and `producer`
+  is the `UserId`; timestamp/metadata are unset. A user's
   stream is its sample's entire haystack (typically tens to hundreds of
   chunks).
 - **Synthetic** — `memories_per_user` (default 100) deterministic items of
@@ -100,9 +103,10 @@ stored unit. The adapter owns the content; the backend adapter forwards
   corpus is byte-identical to one built without it. Reproducible and
   download-free.
 
-Every `MemoryItem` is sent as an **episodic** memory (`types: ["episodic"]`,
-currently hardcoded; semantic is a future option). In practice each `add` op
-carries one item and becomes one request.
+The dataset supplies input content; the backend adapter determines its storage
+representation. MemMachine REST uses episodic memory; other adapters differ
+(see the [support matrix](backend-support.md)). Ordinary scenario ADD requests
+carry one chunk each; pre-ingest can submit batches.
 
 **`search` data — content-derived queries.** Search queries are **not**
 taken from a dataset evaluation question. `search-load` and `mixed`
@@ -130,18 +134,25 @@ quality; gold `expected` fields, if a dataset carries any, are not scored.
 
 ### Wrap-around
 
-Every scenario's plan is **infinite**: it wraps its underlying stream
-(`memory_stream`, the query pool, or `turn_stream`) and keeps emitting until
-the runner stops it. This matters for `--duration` runs — a finite plan
-would exhaust a short stream and leave the rest of the duration idle. The
-runner bounds consumption instead (count- or time-based for closed;
-`--session-ops` per arriving session for open). Count-based termination is
-exact: exactly `--ops` results are recorded.
+`add-load`, `search-load`, `mixed`, and unprofiled `chat-replay` wrap their
+underlying memory/query/turn streams to sustain duration runs. Profiled chat
+keeps source-conversation boundaries; an open session never crosses its
+assigned conversation boundary.
+
+`coding-agent` consumes structured `task_stream` data. Closed users wrap their
+assigned task pool by default; `task_repeat: false` makes replay finite. Each
+open admission consumes one next task, up to `--session-ops` requests, without
+crossing its boundary. Request-free `Wait` events preserve modeled agent/tool
+time without consuming request budgets. See [coding-agent replay](coding-agent.md).
 
 ### Termination
 
-Every run terminates by **either** `--duration SECONDS` or `--ops N`
-(exactly one is required). The open model additionally requires `--duration`.
+The CLI requires either `--duration SECONDS` or `--ops N`; open runs require
+`--duration`. The core `RunConfig` also supports both limits together: duration
+can end dispatch before the operation budget is exhausted. Pure count-based
+closed runs produce exactly `ops` results when the scenario can supply them.
+Coding-agent rejects `task_repeat: false` for pure count runs; a finite replay
+with a duration bound may finish early. Requests already dispatched may finish.
 
 ### Axis separation: load model vs. scenario
 
@@ -412,19 +423,29 @@ drain).
 
 ---
 
+## Coding-agent replay
+
+`coding-agent` uses structured agent tasks (currently Nebius) and synthetic
+hook, selective MCP, or hybrid memory policies. Recorded tools are never
+executed, and search results never change the recorded trajectory. Agent/tool
+waits affect pacing but are excluded from request latency and concurrency.
+Closed users replay tasks sequentially; open admissions each select one next
+task. Profile configuration, boundary rules, and request provenance are
+covered in [coding-agent replay](coding-agent.md).
+
 ## Comparison
 
-| | chat-replay | add-load | search-load | mixed |
-|---|---|---|---|---|
-| load model | closed + open | closed + open | closed + open | closed + open |
-| ops | recall + add per turn | add only | search only | search-weighted add + search |
-| search query source | user turn content | — | own memory content | own memory content |
-| user lifetime | wraps the dialogue | wraps to sustain | wraps to sustain | per-session (arrival → `session_ops`) |
-| concurrency | N fixed, in-order replay | N fixed, parallel add | N fixed, parallel search | emergent under open; N fixed under closed |
-| precondition | dataset with `turn_stream` | none | preingest required | preingest recommended |
-| termination | duration/ops | duration/ops | duration/ops | duration required (open) |
-| op scheduling | think 0–0.05s | back-to-back | think 0–0.02s | think 0–0.05s |
-| key output | chatbot-LTM integration load | write throughput | read latency | rejection/congestion metrics (open) |
+| | chat-replay | add-load | search-load | mixed | coding-agent |
+|---|---|---|---|---|---|
+| load model | closed + open | closed + open | closed + open | closed + open | closed + open |
+| ops | recall + add per turn | add only | search only | search-weighted add + search | hook/MCP/hybrid add + search |
+| search query source | user turn content | — | own memory content | own memory content | known task input/context |
+| user lifetime | wraps the dialogue | wraps to sustain | wraps to sustain | per-session (arrival → `session_ops`) | assigned task pool; one task/open admission |
+| concurrency | N fixed, in-order replay | N fixed, parallel add | N fixed, parallel search | emergent under open; N fixed under closed | one closed lane/user; emergent under open |
+| precondition | dataset with `turn_stream` | none | preingest required | preingest recommended | dataset with `task_stream` |
+| termination | duration/ops | duration/ops | duration/ops | duration required (open) | duration/ops; finite replay needs duration |
+| op scheduling | think 0–0.05s | back-to-back | think 0–0.02s | think 0–0.05s | agent/tool/task waits + memory policy |
+| key output | chatbot-LTM integration load | write throughput | read latency | rejection/congestion metrics (open) | agent-LTM integration load |
 
 ---
 

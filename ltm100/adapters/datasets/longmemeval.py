@@ -41,6 +41,7 @@ from pathlib import Path
 from typing import Any
 
 from ltm100.common import MemoryItem, Turn, UserId
+from ltm100.text import split_chunks as _split_chunks
 
 logger = logging.getLogger(__name__)
 
@@ -51,30 +52,6 @@ _EVENT_TYPES = {
     "boolean": "bool",
     "null": "NoneType",
 }
-
-
-def _split_chunks(text: str, max_chars: int = 3000) -> list[str]:
-    """Split a long string into <=max_chars chunks on word boundaries."""
-    normalized = text.strip()
-    if not normalized:
-        return []
-    if len(normalized) <= max_chars:
-        return [normalized]
-
-    chunks: list[str] = []
-    start = 0
-    text_len = len(normalized)
-    while start < text_len:
-        end = min(start + max_chars, text_len)
-        if end < text_len:
-            split_at = normalized.rfind(" ", start, end)
-            if split_at > start + (max_chars // 2):
-                end = split_at
-        chunk = normalized[start:end].strip()
-        if chunk:
-            chunks.append(chunk)
-        start = end
-    return chunks
 
 
 def _collect_turn_contents(sample: dict[str, Any]) -> list[str]:
