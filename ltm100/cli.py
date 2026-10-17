@@ -21,6 +21,7 @@ import sys
 from datetime import datetime, timezone
 from typing import Any
 
+from ltm100.adapters.backends.memory_types import memory_type_settings
 from ltm100.config import build_backend, build_dataset, load_config
 from ltm100.core.chat_profile import load_chat_profile
 from ltm100.core.config import RunConfig
@@ -181,6 +182,9 @@ async def _run_shard_async(args: argparse.Namespace) -> ShardResult:
         **hooks,
     )
     async with backend:  # type: ignore[arg-type]
+        preflight = getattr(backend, "preflight", None)
+        if preflight is not None:
+            await preflight()
         run_failed = False
         try:
             await runner.run()
@@ -405,6 +409,13 @@ def _run(args: argparse.Namespace) -> int:
     # Validate scenario-specific files and options before probing or mutating
     # the backend. Each shard rebuilds the scenario it will actually run.
     _build_scenario(args)
+    type_settings = memory_type_settings(cfg.backend.name, cfg.backend.options)
+    if (
+        type_settings
+        and "semantic" in type_settings["resolved_request_types"]["search"]
+        and (args.expand or args.filter)
+    ):
+        raise ValueError("semantic search does not support --expand or --filter")
     # Each shard tears down the users it drove, which assumes a project per
     # user. With backend.project_id set they all share one, so the first shard
     # to finish would delete it under the others mid-run. Refuse rather than
@@ -574,6 +585,9 @@ def _run(args: argparse.Namespace) -> int:
         measurement_started_at=measurement_started_at,
         measurement_ended_at=measurement_ended_at,
     )
+
+    if type_settings is not None:
+        meta["memory_types"] = type_settings
 
     # The section's `raw` block is the full two-snapshot scrape: too big for
     # the inline copy, which exists to be read, and goes to its own file.

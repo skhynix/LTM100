@@ -13,8 +13,8 @@ Endpoints used:
   POST /api/v2/projects           create a project (per-user tenant)
   POST /api/v2/projects/get       look up a shared project before creating it
   POST /api/v2/projects/delete    delete a project
-  POST /api/v2/memories           add memories (episodic)
-  POST /api/v2/memories/search    search memories (episodic)
+  POST /api/v2/memories           add memories (episodic by default)
+  POST /api/v2/memories/search    search memories (episodic by default)
   GET  /api/v2/health             readiness check
   GET  /api/v2/metrics            Prometheus exposition (optional; CLI-scraped)
 """
@@ -25,14 +25,17 @@ import asyncio
 import logging
 from typing import Any
 
+from ltm100.adapters.backends.memory_types import (
+    DEFAULT_TYPES,
+    normalize_types,
+    validate_isolation,
+)
 from ltm100.adapters.transports.rest import RestError, RestTransport
 from ltm100.common import MemoryItem, QueryItem, ResultItem, UserId
 
 logger = logging.getLogger(__name__)
 
-# We only ingest/search episodic memory in this benchmark.
 _PRODUCER_FIELD = "producer_id"
-_EPISODIC_TYPES = ["episodic"]
 
 
 class MemMachineClient:
@@ -57,7 +60,21 @@ class MemMachineClient:
         timeout: float = 60.0,
         add_batch_size: int = 50,
         retries: int = 0,
+        add_memory_types: list[str] | tuple[str, ...] = DEFAULT_TYPES,
+        search_memory_types: list[str] | tuple[str, ...] = DEFAULT_TYPES,
     ) -> None:
+        self.add_memory_types = normalize_types(add_memory_types, "add_memory_types")
+        self.search_memory_types = normalize_types(
+            search_memory_types, "search_memory_types"
+        )
+        validate_isolation(
+            self.add_memory_types + self.search_memory_types, filter_by_producer
+        )
+        self._uses_semantic = (
+            "semantic" in self.add_memory_types + self.search_memory_types
+        )
+        self._semantic_verified = False
+        self._semantic_lock = asyncio.Lock()
         self.org_prefix = org_prefix
         self.project_id = project_id
         self.filter_by_producer = filter_by_producer
@@ -68,10 +85,46 @@ class MemMachineClient:
 
     async def __aenter__(self) -> MemMachineClient:  # noqa: PYI034
         await self._transport.open()
+        self._semantic_verified = False
         return self
 
     async def __aexit__(self, *exc: object) -> None:
         await self._transport.close()
+
+    async def preflight(self) -> None:
+        """Check opt-in support before the caller enters workload cleanup."""
+        if not self._uses_semantic or self._semantic_verified:
+            return
+        async with self._semantic_lock:
+            if not self._semantic_verified:
+                await self._check_semantic_enabled()
+                self._semantic_verified = True
+
+    async def _check_semantic_enabled(self) -> None:
+        """Refuse unverified selection before setup/cleanup can mutate state."""
+        try:
+            config = await self._transport.request(
+                "GET", "/api/v2/config/memory/semantic"
+            )
+        except Exception as error:
+            raise RuntimeError(
+                "cannot verify semantic memory is enabled: "
+                "GET /api/v2/config/memory/semantic failed; "
+                "check server/API support, --with-config-api, and permissions"
+            ) from error
+        if not isinstance(config, dict) or config.get("enabled") is not True:
+            raise ValueError(
+                "semantic memory was requested but the server does not report enabled=true"
+            )
+
+    def validate_search_options(
+        self, *, expand_context: int = 0, filter: str = ""
+    ) -> None:
+        if "semantic" in self.search_memory_types and (expand_context or filter):
+            raise ValueError(
+                "semantic search does not support expand_context or filter in this "
+                "adapter; use episodic-only search for those options"
+            )
 
     def _tenant(self, user: UserId) -> tuple[str, str]:
         """Map a virtual user to (org_id, project_id).
@@ -108,6 +161,7 @@ class MemMachineClient:
     # -- LTMClient --------------------------------------------------------
 
     async def setup(self, users: list[UserId]) -> None:
+        await self.preflight()
         # The filter grammar has no escape inside a quoted string (a literal is
         # '[^']*'), so an id carrying a quote would end the producer scope
         # early. No dataset produces one; refuse rather than escape.
@@ -179,6 +233,8 @@ class MemMachineClient:
                 await asyncio.sleep(self._create_retry_delay)
 
     async def add(self, user: UserId, items: list[MemoryItem]) -> list[str]:
+        if self._uses_semantic:
+            await self.preflight()
         org_id, project_id = self._tenant(user)
         uids: list[str] = []
         for start in range(0, len(items), self.add_batch_size):
@@ -186,7 +242,7 @@ class MemMachineClient:
             payload = {
                 "org_id": org_id,
                 "project_id": project_id,
-                "types": _EPISODIC_TYPES,
+                "types": list(self.add_memory_types),
                 "messages": [_to_message(it) for it in batch],
             }
             resp = await self._transport.request(
@@ -197,13 +253,18 @@ class MemMachineClient:
         return uids
 
     async def search(self, user: UserId, query: QueryItem) -> list[ResultItem]:
+        self.validate_search_options(
+            expand_context=query.expand_context, filter=query.filter
+        )
+        if self._uses_semantic:
+            await self.preflight()
         org_id, project_id = self._tenant(user)
         payload: dict[str, Any] = {
             "org_id": org_id,
             "project_id": project_id,
             "query": query.query,
             "top_k": query.top_k,
-            "types": _EPISODIC_TYPES,
+            "types": list(self.search_memory_types),
         }
         # Omitted rather than sent as 0/"" so a default run's payload is
         # unchanged and the server applies its own defaults.
@@ -229,7 +290,12 @@ class MemMachineClient:
         resp = await self._transport.request(
             "POST", "/api/v2/memories/search", json=payload
         )
-        return _parse_episodes(resp)
+        results = (
+            _parse_episodes(resp) if "episodic" in self.search_memory_types else []
+        )
+        if "semantic" in self.search_memory_types:
+            results.extend(_parse_semantic_features(resp))
+        return results
 
     async def teardown(self, users: list[UserId], *, delete: bool) -> None:
         if not delete:
@@ -287,6 +353,34 @@ def _parse_episodes(resp: dict[str, Any]) -> list[ResultItem]:
                 score=ep.get("score"),
                 uid=ep.get("uid") or ep.get("id"),
                 metadata=ep.get("metadata", {}) or {},
+            )
+        )
+    return results
+
+
+def _parse_semantic_features(resp: dict[str, Any]) -> list[ResultItem]:
+    """Preserve native features without inventing scores or global top-k."""
+    rows = (resp.get("content") or {}).get("semantic_memory")
+    if rows is None:
+        return []
+    if not isinstance(rows, list):
+        raise TypeError("MemMachine returned invalid semantic_memory")
+    results = []
+    for row in rows:
+        if (
+            not isinstance(row, dict)
+            or not isinstance(row.get("feature_name"), str)
+            or not isinstance(row.get("value"), str)
+            or not isinstance(row.get("metadata", {}), dict)
+        ):
+            raise TypeError("MemMachine returned an invalid semantic feature")
+        uid = row.get("metadata", {}).get("id")
+        results.append(
+            ResultItem(
+                content=f"{row['feature_name']}: {row['value']}",
+                uid=str(uid) if uid is not None else None,
+                score=None,
+                metadata={"ltm100_memory_type": "semantic", "semantic_feature": row},
             )
         )
     return results

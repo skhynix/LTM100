@@ -161,6 +161,14 @@ async def test_live_nebius_corpus_isolation_and_reports(tmp_path, scenario, seed
                     assert report["meta"]["preingest_stats"]["input_items"] == 8
                 stored = {}
                 for user, items in expected.items():
+                    if scenario == "add-load":
+                        # The count budget is global, not a per-user minimum.
+                        # Backend pacing can leave a user before its fourth add.
+                        submitted = sum(
+                            row["user_id"] == user and row["op_type"] == "add"
+                            for row in raw
+                        )
+                        items = items[:submitted]
                     expected_contents = {item.content for item in items}
                     stored[user] = set()
                     for item in items:
@@ -184,4 +192,6 @@ async def test_live_nebius_corpus_isolation_and_reports(tmp_path, scenario, seed
                 snapshots.append(stored)
             finally:
                 await client.teardown(list(expected), delete=True)
-    assert snapshots[0] == snapshots[1]
+    if scenario != "add-load":
+        # Pre-ingest guarantees this prefix in both process topologies.
+        assert snapshots[0] == snapshots[1]

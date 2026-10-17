@@ -530,11 +530,17 @@ generation (incl. overall QPS, per-op `items.empty_rate`, `meta.build`),
 multi-process sharding (`--procs`), streaming dataset load, retries, and
 cleanup (teardown delete). No code bugs found.
 
-### Known limitation: backend `types` is hardcoded
+### Backend memory-type selection
 
-The MemMachine adapter currently sends `types: ["episodic"]` for both add and
-search (semantic memory excluded to avoid LLM-based background-processing
-noise in load measurement). Making `types` configurable is a deferred TODO.
+MemMachine REST defaults both operations to `types: ["episodic"]`, preserving
+existing YAML and wire behavior. Optional `add_memory_types` and
+`search_memory_types` independently select episodic, semantic, or both.
+Selection belongs to the backend adapter; scenarios, datasets, and runner
+budgets are unchanged. Semantic selection requires a read-only enabled-state
+preflight before workload setup; other adapters reject these options.
+Semantic responses are normalized without invented scores or combined top-k
+truncation. Input acknowledgements do not imply semantic extraction completion.
+See [memory types](docs/memory-types.md) for the full contract and restrictions.
 
 ### Known caveat: MemMachine `projects/list` is eventually consistent
 
@@ -567,7 +573,7 @@ Resolved during implementation:
   lifecycle (project create/delete) stays on REST, since MCP has no
   project-management tools (hybrid lifecycle). Tenancy is passed as MCP tool
   arguments. The MCP `add_memory` writes all memory types (episodic + semantic),
-  unlike the episodic-only REST add, so MCP add latency is not directly
+  unlike the default episodic-only REST add, so MCP add latency is not directly
   comparable to REST add latency; documented rather than worked around. The
   MCP adapter imports lazily (`config._mcp_backend`) so a plain install
   without the `[mcp]` extra can still print `--help`; the extra is required
@@ -593,10 +599,6 @@ Resolved during implementation:
 
 Still open / next work is tracked in GitHub issues rather than duplicated in
 this design document.
-3. **Configurable memory types** — replace the REST adapter's hardcoded
-   episodic-only `types` with a config option (semantic adds LLM background
-   processing load). The MCP transport is already all-types by the tool's
-   design. Synergy with Mem0.
 4. **Additional datasets** (BEAM, LoCoMo) via the `DatasetAdapter` extension
    (must implement `memory_stream`, and `turn_stream` if dialogue).
 

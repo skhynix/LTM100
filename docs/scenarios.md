@@ -100,9 +100,10 @@ stored unit. The adapter owns the content; the backend adapter forwards
   corpus is byte-identical to one built without it. Reproducible and
   download-free.
 
-Every `MemoryItem` is sent as an **episodic** memory (`types: ["episodic"]`,
-currently hardcoded; semantic is a future option). In practice each `add` op
-carries one item and becomes one request.
+MemMachine REST defaults to episodic-only requests. Optional backend
+`add_memory_types`/`search_memory_types` select semantic or combined paths;
+see [memory types](memory-types.md). Other adapters retain their native storage
+paths. In practice ordinary scenario ADDs carry one item; pre-ingest may batch.
 
 **`search` data — content-derived queries.** Search queries are **not**
 taken from a dataset evaluation question. `search-load` and `mixed`
@@ -527,7 +528,7 @@ a local embedder.
 
 ```
 org_id, project_id              # from the user's session_key
-types: ["episodic"]             # episodic only (hardcoded; semantic is a future option)
+types: ["episodic"]             # default; independently configurable per add/search
 messages: [{ content, producer, role?, timestamp?, metadata? }]
 ```
 
@@ -590,7 +591,7 @@ Two differences versus the REST adapter, by design and worth noting when
 comparing the two transports:
 
 - `add_memory` writes `types=ALL_MEMORY_TYPES` (episodic **and** semantic).
-  The REST adapter is episodic-only. Semantic memory triggers LLM-based
+  The REST adapter defaults to episodic-only. Semantic memory triggers LLM-based
   background processing, so MCP `add` latency is not directly comparable to
   REST `add` latency.
 - `add_memory` returns a success status with no ids, so `add` reports

@@ -125,6 +125,7 @@ percentiles. See [Reports](docs/running.md#reports) for the output contract.
   and cleanup.
 - [Backend support](docs/backend-support.md) — shared features, adapter limits,
   and comparison semantics.
+- [Memory types](docs/memory-types.md) — opt-in backend type selection and defaults.
 - [Scenario guide](docs/scenarios.md) — per-scenario data flow and behavior.
 - [Load models](docs/load-models.md) — closed/open scheduling and congestion.
 - [Workload patterns](docs/workload-patterns.md) — fixed-delay chat-replay
