@@ -12,6 +12,7 @@ EXAMPLES = Path(__file__).parents[1] / "examples"
 RECOMMENDED_SCENARIOS = {
     "memmachine.yaml": ("chat-replay",),
     "memmachine-mcp.yaml": ("chat-replay",),
+    "memmachine-memory-types.yaml": ("add-load", "search-load", "mixed"),
     "synthetic.yaml": ("add-load", "search-load", "mixed"),
     "nebius.yaml": ("add-load", "search-load", "mixed"),
     "mem0.yaml": ("add-load", "search-load", "mixed"),

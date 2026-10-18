@@ -26,6 +26,7 @@ import yaml
 
 from ltm100.adapters.backends.mem0 import Mem0Client
 from ltm100.adapters.backends.memmachine import MemMachineClient
+from ltm100.adapters.backends.memory_types import memory_type_settings
 from ltm100.adapters.backends.supermemory import SupermemoryClient
 from ltm100.adapters.datasets.longmemeval import LongMemEvalAdapter
 from ltm100.adapters.datasets.nebius import NebiusAdapter
@@ -56,6 +57,10 @@ def _parse_config(raw: dict[str, Any]) -> BenchmarkConfig:
         raise ValueError("config missing 'dataset' section")
     if "backend" not in raw:
         raise ValueError("config missing 'backend' section")
+    memory_type_settings(
+        raw["backend"].get("name"),
+        {k: v for k, v in raw["backend"].items() if k != "name"},
+    )
     return BenchmarkConfig(
         dataset=AdapterConfig(
             name=raw["dataset"].get("name"),
@@ -97,6 +102,7 @@ def build_dataset(cfg: AdapterConfig) -> DatasetAdapter:
 
 
 def build_backend(cfg: AdapterConfig) -> LTMClient:
+    memory_type_settings(cfg.name, cfg.options)
     # Deferred so that fastmcp, which ships only in the [mcp] extra, is
     # required only by a run that actually selects the MCP backend.
     if cfg.name == "memmachine-mcp":

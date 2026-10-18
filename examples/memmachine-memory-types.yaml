@@ -1,0 +1,21 @@
+# Opt-in semantic evaluation. Existing example YAMLs remain episodic-only.
+# The server must enable semantic memory and expose its read-only config API
+# (for example, memmachine-server --with-config-api on a disposable server).
+# LTM100 verifies enabled configuration; it does not wait for feature extraction.
+#
+# ltm100 run --config examples/memmachine-memory-types.yaml \
+#     --scenario mixed --users 10 --duration 300 --warmup 30 \
+#     --raw --time-series-interval 1 --output out/memory-types
+# See docs/memory-types.md for interpretation and unsupported combinations.
+dataset:
+  name: synthetic
+  memories_per_user: 100
+  content_chars: 200
+backend:
+  name: memmachine
+  base_url: http://localhost:8080
+  org_prefix: ltm100_types
+  timeout: 60.0
+  add_batch_size: 50
+  add_memory_types: [episodic, semantic]
+  search_memory_types: [episodic, semantic]

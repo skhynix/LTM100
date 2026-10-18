@@ -286,9 +286,11 @@ of workloads, options, observability, and measurement semantics.
 ### MemMachine REST
 
 [`examples/memmachine.yaml`](../examples/memmachine.yaml) maps each virtual
-user to a project under `org_prefix`. It uses episodic add/search operations
+user to a project under `org_prefix`. By default it uses episodic add/search operations
 and supports `--expand`, `--filter`, and `--server-metrics`. Dialogue item
-roles are forwarded in `messages[].role`.
+roles are forwarded in `messages[].role`. Optional backend
+`add_memory_types`/`search_memory_types` select semantic or combined paths;
+see [memory types](memory-types.md) for server requirements and restrictions.
 
 The optional `project_id` and `filter_by_producer` settings support shared-
 project isolation experiments. See the isolation-scope section in
@@ -298,7 +300,7 @@ project isolation experiments. See the isolation-scope section in
 
 [`examples/memmachine-mcp.yaml`](../examples/memmachine-mcp.yaml) uses MCP for
 measured add/search operations and REST for lifecycle management. MCP add
-writes all memory types rather than the REST adapter's episodic-only payload,
+writes all memory types rather than the REST adapter's default episodic-only payload,
 so REST and MCP add latency are not a transport-only comparison.
 
 The MCP tools expose neither context expansion nor metadata filtering and do

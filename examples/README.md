@@ -6,6 +6,7 @@ backend. The dataset determines whether `chat-replay` is available.
 | Config | Dataset | Backend | Recommended scenarios |
 |---|---|---|---|
 | `memmachine.yaml` | LongMemEval | MemMachine REST | `chat-replay` |
+| `memmachine-memory-types.yaml` | Synthetic | MemMachine REST (semantic opt-in) | `add-load`, `search-load`, `mixed` |
 | `synthetic.yaml` | Synthetic | MemMachine REST | `add-load`, `search-load`, `mixed` |
 | `nebius.yaml` | Nebius agent trajectory corpus | MemMachine REST | `add-load`, `search-load`, `mixed` |
 | `memmachine-mcp.yaml` | LongMemEval | MemMachine MCP | `chat-replay` |
@@ -40,3 +41,7 @@ For an offline illustration of `chat-replay` request timing, see
 [Workload patterns](../docs/workload-patterns.md). The scripts and preset in
 `workload-patterns/` use a fixed-delay backend and are separate from the
 backend configurations above.
+
+`memmachine-memory-types.yaml` explicitly enables type selection. All existing
+REST examples remain episodic-only when these options are omitted. See
+[memory types](../docs/memory-types.md) before enabling semantic processing.

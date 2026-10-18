@@ -40,12 +40,13 @@ pre-ingest aborts the run.
 | Capability | MemMachine REST | MemMachine MCP | Mem0 OSS REST | Supermemory REST |
 |---|---|---|---|---|
 | YAML backend name | `memmachine` | `memmachine-mcp` | `mem0` | `supermemory` |
-| Add path | Episodic messages | All memory types via MCP tool | Raw storage by default (`infer: false`) | Direct memories; no document extraction |
+| Add path | Episodic by default; optional semantic or both | All memory types via MCP tool | Raw storage by default (`infer: false`) | Direct memories; no document extraction |
 | Per-user scope | One project per user | One project per user | Namespaced `user_id` | Namespaced hashed `containerTag` |
-| Shared project + producer-filter isolation | Supported | Rejected | Not implemented | Not implemented |
+| Memory-type selection | Independent add/search lists; episodic default | Rejected | Rejected | Rejected |
+| Shared project + producer-filter isolation | Episodic-only | Rejected | Not implemented | Not implemented |
 | Search `top_k` | Forwarded to server | Forwarded to tool | Forwarded to server | 1–100; other values rejected |
-| Context expansion (`--expand`) | Forwarded to server | Rejected | Rejected | Disabled with a warning |
-| Search filters (`--filter`) | Server filter expression | Rejected | String equality, `key=value` | String equality, metadata `AND` filter |
+| Context expansion (`--expand`) | Episodic search only | Rejected | Rejected | Disabled with a warning |
+| Search filters (`--filter`) | Server filter expression; episodic search only | Rejected | String equality, `key=value` | String equality, metadata `AND` filter |
 | Item metadata | Values converted to strings | Non-empty metadata rejected | Per-item metadata | Preserved; `ltm100_*` provenance keys reserved |
 | Dialogue role | `messages[].role` | Omitted | `messages[].role` | `metadata.ltm100_role` |
 | Producer / timestamp | Native message fields | Producer → `user_id`; timestamp omitted | Producer → message `name`; timestamp → metadata | `ltm100_producer` / `ltm100_timestamp` metadata |
@@ -62,6 +63,9 @@ Filter syntax is **not portable**. MemMachine forwards the expression unchanged
 (for example, `m.category = 'cat_3'`, depending on the server grammar), whereas
 Mem0/Supermemory translate `metadata.category=cat_3` into their own request
 formats. Do not reuse one backend's filter command without checking its grammar.
+
+See [memory types](memory-types.md) for semantic preflight, result counting,
+asynchronous extraction, and incompatible settings.
 
 ## Interpreting comparisons
 
