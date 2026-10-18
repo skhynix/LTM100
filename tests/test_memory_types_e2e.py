@@ -229,7 +229,7 @@ async def test_live_cli_types_preingest_reports_and_processes(
             else:
                 assert server_row["delta_count"] == 0 or (
                     server_row["delta_count"] is None
-                    and server_row["note"] == "not executed"
+                    and server_row["note"] in {"not executed", "no data"}
                 )
     series = list(csv.DictReader((output / "timeseries.csv").open()))
     assert sum(

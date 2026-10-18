@@ -599,7 +599,8 @@ Resolved during implementation:
 
 Still open / next work is tracked in GitHub issues rather than duplicated in
 this design document.
-4. **Additional datasets** (BEAM, LoCoMo) via the `DatasetAdapter` extension
+
+- **Additional datasets** (BEAM, LoCoMo) via the `DatasetAdapter` extension
    (must implement `memory_stream`, and `turn_stream` if dialogue).
 
 ## 14. Glossary
