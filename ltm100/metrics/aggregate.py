@@ -130,11 +130,12 @@ def _aggregate(results: list[OpResult]) -> dict:
                 "empty_rate": empty / len(ok) if ok else 0.0,
             },
         }
+        _add_error_breakdown(summary_by_op[op_type], errors)
 
     accepted = total_successful + total_errors
     successful_throughput = total_successful / wall if wall > 0 else 0.0
 
-    return {
+    summary = {
         "total": total,
         "throughput_ops_s": successful_throughput,
         "qps": successful_throughput,
@@ -153,6 +154,37 @@ def _aggregate(results: list[OpResult]) -> dict:
         "error_rate": total_errors / accepted if accepted else 0.0,
         "wall_seconds": round(wall, 6),
     }
+    _add_error_breakdown(
+        summary, [r for r in results if r.status not in ("ok", "rejected")]
+    )
+    return summary
+
+
+def _add_error_breakdown(summary: dict, errors: list[OpResult]) -> None:
+    # Legacy callers can still supply results without diagnostics. Do not
+    # change their summaries. Once details exist, include undetailed failures
+    # as "other" so breakdown counts reconcile with the existing error count.
+    if not any(r.error_detail is not None for r in errors):
+        return
+    counts: dict[tuple, dict] = {}
+    for result in errors:
+        detail = result.error_detail
+        row = {
+            "op_type": result.type.value,
+            "error_kind": result.error_kind or "unknown",
+            "category": detail.category if detail else "other",
+        }
+        if detail is not None:
+            row.update(
+                (key, value)
+                for key, value in detail.as_dict().items()
+                if key not in {"message", "timeout_seconds", "category"}
+            )
+        key = tuple(row.items())
+        if key not in counts:
+            counts[key] = {**row, "count": 0}
+        counts[key]["count"] += 1
+    summary["error_breakdown"] = [counts[key] for key in sorted(counts, key=repr)]
 
 
 __all__ = ["aggregate"]

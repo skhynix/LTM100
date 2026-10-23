@@ -11,6 +11,8 @@ from typing import Any
 
 import aiohttp
 
+from ltm100.errors import annotate_error
+
 
 class RestTransport:
     """Stateless JSON-over-HTTP transport with a shared session.
@@ -70,14 +72,18 @@ class RestTransport:
         while True:
             try:
                 return await self._once(method, path, json=json, params=params)
-            except (asyncio.TimeoutError, aiohttp.ClientConnectionError):
+            except (asyncio.TimeoutError, aiohttp.ClientConnectionError) as error:
                 # Only connection-level failures are retried. An HTTP error
                 # status is a real answer from the server and belongs in the
                 # results; retrying it would understate the error rate.
                 if attempt >= self.retries:
+                    self._annotate(error, method, path)
                     raise
                 await asyncio.sleep(self.retry_backoff * (2**attempt))
                 attempt += 1
+            except Exception as error:
+                self._annotate(error, method, path)
+                raise
 
     async def request_text(self, method: str, path: str) -> str:
         """Like request(), but returns the body verbatim instead of parsing it.
@@ -93,15 +99,39 @@ class RestTransport:
                     text = await resp.text()
                     if resp.status >= 400:
                         raise RestError(
-                            f"{method} {path} -> {resp.status}: {text[:500]}"
+                            f"{method} {path} -> {resp.status}: {text[:500]}",
+                            http_status=resp.status,
                         )
                     return text
-            except (asyncio.TimeoutError, aiohttp.ClientConnectionError):
+            except (asyncio.TimeoutError, aiohttp.ClientConnectionError) as error:
                 # Connection-level retries only, for the same reason as request().
                 if attempt >= self.retries:
+                    self._annotate(error, method, path)
                     raise
                 await asyncio.sleep(self.retry_backoff * (2**attempt))
                 attempt += 1
+            except Exception as error:
+                self._annotate(error, method, path)
+                raise
+
+    def _annotate(self, error: Exception, method: str, path: str) -> None:
+        category = None
+        if isinstance(error, RestError):
+            category = "http"
+        elif isinstance(error, asyncio.TimeoutError):
+            category = "timeout"
+        elif isinstance(error, aiohttp.ClientConnectionError):
+            category = "connection"
+        elif isinstance(error, aiohttp.ClientPayloadError):
+            category = "response"
+        annotate_error(
+            error,
+            category=category,
+            method=method,
+            endpoint=path,
+            http_status=error.http_status if isinstance(error, RestError) else None,
+            timeout_seconds=self.timeout.total,
+        )
 
     async def _once(
         self,
@@ -117,16 +147,27 @@ class RestTransport:
         ) as resp:
             text = await resp.text()
             if resp.status >= 400:
-                raise RestError(f"{method} {path} -> {resp.status}: {text[:500]}")
+                raise RestError(
+                    f"{method} {path} -> {resp.status}: {text[:500]}",
+                    http_status=resp.status,
+                )
             if not text:
                 return {}
             import json as _json
 
-            return _json.loads(text)
+            try:
+                return _json.loads(text)
+            except _json.JSONDecodeError as error:
+                annotate_error(error, category="response", http_status=resp.status)
+                raise
 
 
 class RestError(RuntimeError):
     """Raised when the server returns an HTTP error status."""
+
+    def __init__(self, message: str, *, http_status: int | None = None) -> None:
+        super().__init__(message)
+        self.http_status = http_status
 
 
 __all__ = ["RestError", "RestTransport"]

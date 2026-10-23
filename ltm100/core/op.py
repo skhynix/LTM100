@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 from ltm100.common import DatasetAdapter, MemoryItem, QueryItem, UserId
+from ltm100.errors import ErrorDetail
 
 
 class OpType(str, enum.Enum):
@@ -51,6 +52,7 @@ class OpResult:
     n_items: int = 0  # items stored (add) or results returned (search)
     group: str = ""  # workload-profile group, when configured
     session_id: int | None = None
+    error_detail: ErrorDetail | None = None
 
 
 class Scenario(Protocol):

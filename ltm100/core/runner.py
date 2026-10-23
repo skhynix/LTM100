@@ -32,6 +32,7 @@ from itertools import islice
 from ltm100.common import DatasetAdapter, LTMClient, UserId
 from ltm100.core.config import RunConfig
 from ltm100.core.op import Op, OpResult, OpType, Scenario
+from ltm100.errors import error_detail
 from ltm100.metrics.recorder import InMemoryRecorder, MetricsRecorder
 
 logger = logging.getLogger(__name__)
@@ -633,6 +634,7 @@ class LoadRunner:
         started = time.time()
         status = "ok"
         error_kind = ""
+        failure = None
         n_items = 0
         try:
             if op.type is OpType.ADD:
@@ -644,6 +646,7 @@ class LoadRunner:
         except Exception as e:  # noqa: BLE001 - record any failure as op error
             status = "error"
             error_kind = type(e).__name__
+            failure = e
             logger.debug("op %s for %s failed: %s", op.type.value, user, e)
         ended = time.time()
         result = OpResult(
@@ -656,6 +659,7 @@ class LoadRunner:
             n_items=n_items,
             group=op.group,
             session_id=op.session_id,
+            error_detail=error_detail(failure) if failure is not None else None,
         )
         if self._record_results:
             await self.recorder.record(result)
