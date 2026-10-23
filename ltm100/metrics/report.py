@@ -251,6 +251,8 @@ def write_raw_ndjson(results: list[OpResult], path: str | Path) -> None:
                 row["group"] = r.group
             if r.session_id is not None:
                 row["session_id"] = r.session_id
+            if r.status == "error" and r.error_detail is not None:
+                row["error_detail"] = r.error_detail.as_dict()
             f.write(json.dumps(row) + "\n")
 
 

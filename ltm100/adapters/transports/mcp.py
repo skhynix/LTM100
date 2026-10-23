@@ -17,6 +17,8 @@ from typing import Any
 
 from fastmcp import Client
 
+from ltm100.errors import annotate_error, error_detail
+
 logger = logging.getLogger(__name__)
 
 
@@ -74,11 +76,16 @@ class McpTransport:
         `McpResponse` (status != 200). On success returns the tool's structured
         result (e.g. a `SearchResult` for `search_memory`)."""
         if self._client is None:
-            raise McpError("MCP transport is not open")
+            error = McpError("MCP transport is not open")
+            self._annotate(error, name)
+            raise error
         try:
             result = await self._client.call_tool(name, arguments)
         except Exception as e:
-            raise McpError(f"MCP call {name!r} failed: {e}") from e
+            error = McpError(f"MCP call {name!r} failed: {e}")
+            error.__cause__ = e
+            self._annotate(error, name)
+            raise error from e
         data = result.data
         # Tool failures come back as a McpResponse(status, message) rather
         # than raised. Distinguish it from a successful SearchResult, which
@@ -90,10 +97,25 @@ class McpTransport:
         ):
             status = getattr(data, "status", 0)
             if status != 200:
-                raise McpError(
+                error = McpError(
                     f"MCP tool {name!r} returned status {status}: {data.message}"
                 )
+                self._annotate(error, name, tool_status=status)
+                raise error
         return data
+
+    def _annotate(
+        self, error: McpError, name: str, *, tool_status: int | None = None
+    ) -> None:
+        category = error_detail(error).category
+        annotate_error(
+            error,
+            category="mcp" if category == "other" else category,
+            endpoint=self.base_url,
+            timeout_seconds=self.timeout,
+            tool_name=name,
+            tool_status=tool_status,
+        )
 
 
 __all__ = ["McpError", "McpTransport"]

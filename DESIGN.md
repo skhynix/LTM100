@@ -338,6 +338,14 @@ Aggregated summary:
   one.
 - Concurrency (observed concurrent in-flight over time, for open model).
 
+Failed operations can carry a backend-independent `ErrorDetail`. Transports
+attach request context without replacing existing exceptions; the runner
+extracts it after timestamping completion. JSON reports add optional raw
+details and count breakdowns while retaining exception-kind counts, existing
+CSV formats, and successful-only latency. Diagnostics neither control the
+workload nor inspect request/response payloads. See
+[Error diagnostics](docs/error-reporting.md) for fields and data boundaries.
+
 ### 7.2 Report metadata (`meta`)
 
 The summary JSON carries whole-run metadata: `dataset`, `backend`, `scenario`,

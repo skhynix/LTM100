@@ -350,6 +350,9 @@ With `--output DIR`, LTM100 writes:
 - `raw.ndjson`: per-request records when `--raw` is enabled.
   Profiled records include `group` and `session_id`; the latter identifies a
   reusable per-user conversation lane, not a backend isolation key.
+  Failed operations also carry `error_detail` when available; `summary.json`
+  aggregates these as `error_breakdown`, even without `--raw`. Existing CSV
+  columns are unchanged. See [Error diagnostics](error-reporting.md).
 - `timeseries.csv`: fixed-interval client-observed E2E metrics when
   `--time-series-interval SECONDS` is set. Each interval has separate rows for
   add and search plus an `all` throughput row. It records dispatched starts,
