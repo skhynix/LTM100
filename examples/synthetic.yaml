@@ -4,8 +4,9 @@
 # dialogue turns, so it cannot run chat-replay. Basic add throughput example:
 #   ltm100 run --config examples/synthetic.yaml \
 #       --scenario add-load --users 20 --duration 30 --seed 0
-# --seed controls corpus content and workload scheduling. Keep it fixed for
-# comparable runs; seed 0 preserves the original corpus and user IDs stay stable.
+# --seed controls corpus content and workload scheduling by default. Set the
+# optional corpus_seed below to fix data while varying --seed for scheduling.
+# Corpus seed 0 preserves the original corpus; user IDs stay stable.
 #
 # For search-load, pre-ingest the corpus before the measured run:
 #   ltm100 run --config examples/synthetic.yaml \
@@ -27,7 +28,8 @@
 dataset:
   name: synthetic
   memories_per_user: 100
-  content_chars: 200
+  content_chars: 200  # Requested filler characters; excludes the user/index prefix.
+  # corpus_seed: 42  # Omitted/null inherits --seed; 0 and negative integers are valid.
   # Optional: write metadata.category (cat_0..cat_{N-1}) so --filter can select
   # ~1/N of the data. Uncomment to use, e.g. `--filter metadata.category=cat_3`.
   # categories: 10

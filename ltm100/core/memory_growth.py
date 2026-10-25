@@ -23,7 +23,7 @@ from typing import Any
 from uuid import uuid4
 
 from ltm100.common import DatasetAdapter, MemoryItem, UserId
-from ltm100.config import BenchmarkConfig, build_dataset, load_config
+from ltm100.config import BenchmarkConfig, build_dataset, dataset_settings, load_config
 
 logger = logging.getLogger(__name__)
 
@@ -378,6 +378,9 @@ def run_memory_growth(
         },
         "points": [],
     }
+    generation = dataset_settings(cfg.dataset, seed=args.seed)
+    if generation is not None:
+        manifest["config"]["dataset_config"] = generation
     write_sweep_reports(manifest, output)
 
     for memory_count in counts:

@@ -474,6 +474,10 @@ whole document.
 
 - Seeded RNG by default (`--seed`). Used for: virtual-user→sample mapping,
   op ordering, think time, inter-arrival, op mix.
+- Synthetic inherits that seed for corpus generation unless its optional
+  `corpus_seed` overrides data only. Existing defaults and legacy corpus bytes
+  are preserved. Resolved generation settings are reported without consuming
+  data; see [Synthetic settings](docs/running.md#synthetic-corpus-settings).
 - Different seeds produce variance runs; same seed + same config reproduces.
 - Wall-clock timing is inherently non-deterministic (network/server); the
   *load shape* (order, mix, arrival) is deterministic under a seed.

@@ -196,7 +196,7 @@ def test_the_report_meta_carries_the_build(tmp_path, monkeypatch, capsys):
     cfg_path.write_text(
         _yaml.safe_dump(
             {
-                "dataset": {"name": "synthetic", "length": 2},
+                "dataset": {"name": "synthetic", "memories_per_user": 2},
                 "backend": {"name": "memmachine", "base_url": "http://localhost:8080"},
             }
         )
@@ -215,7 +215,7 @@ def test_the_report_meta_carries_the_build(tmp_path, monkeypatch, capsys):
             "--config",
             str(cfg_path),
             "--scenario",
-            "chat-replay",
+            "add-load",
             "--users",
             "2",
             "--duration",
@@ -244,7 +244,7 @@ def test_report_meta_uses_whole_run_values_and_real_timestamps(
     cfg_path.write_text(
         _yaml.safe_dump(
             {
-                "dataset": {"name": "synthetic", "length": 6},
+                "dataset": {"name": "synthetic", "memories_per_user": 6},
                 "backend": {
                     "name": "memmachine",
                     "base_url": "http://localhost:8080",
@@ -325,7 +325,7 @@ def test_report_meta_keeps_the_whole_count_based_ops_budget(
     cfg_path.write_text(
         _yaml.safe_dump(
             {
-                "dataset": {"name": "synthetic", "length": 6},
+                "dataset": {"name": "synthetic", "memories_per_user": 6},
                 "backend": {
                     "name": "memmachine",
                     "base_url": "http://localhost:8080",

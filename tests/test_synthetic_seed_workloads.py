@@ -20,7 +20,12 @@ from ltm100.core.scenarios import AddLoad, Mixed, SearchLoad
 def _seeded_entry(args: dict, proc_index: int):
     class CapturedDataset(SyntheticAdapter):
         def __init__(self):
-            super().__init__(memories_per_user=6, content_chars=80, categories=3)
+            super().__init__(
+                memories_per_user=6,
+                content_chars=80,
+                categories=3,
+                corpus_seed=args["corpus_seed"],
+            )
             self.corpus = {}
 
         def memory_stream(self, user):
@@ -93,11 +98,18 @@ def _seeded_entry(args: dict, proc_index: int):
 
 
 @pytest.mark.parametrize("scenario", ["add-load", "search-load", "mixed"])
-@pytest.mark.parametrize("seed", [0, 42, -7])
+@pytest.mark.parametrize(
+    "seed,corpus_seed", [(0, None), (42, None), (-7, None), (42, 0), (19, 42), (-7, 42)]
+)
 def test_workloads_preserve_seeded_corpus_across_process_counts(
-    tmp_path, scenario, seed
+    tmp_path, scenario, seed, corpus_seed
 ):
-    reference = SyntheticAdapter(memories_per_user=6, content_chars=80, categories=3)
+    reference = SyntheticAdapter(
+        memories_per_user=6,
+        content_chars=80,
+        categories=3,
+        corpus_seed=corpus_seed,
+    )
     expected = {
         user: list(reference.memory_stream(user))
         for user in reference.users(4, seed=seed)
@@ -111,6 +123,7 @@ def test_workloads_preserve_seeded_corpus_across_process_counts(
             {
                 "scenario": scenario,
                 "seed": seed,
+                "corpus_seed": corpus_seed,
                 "procs": procs,
                 "traces": str(traces),
             },
