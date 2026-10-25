@@ -27,6 +27,74 @@ Nebius agent trajectories support the same generic add/search workloads via
 coding-agent scenario and intentionally reject `chat-replay`. See the
 [Nebius guide](nebius.md) for loading, user mapping, and corpus size controls.
 
+### Synthetic corpus settings
+
+Synthetic supports `add-load`, `search-load`, and `mixed`; it does not provide
+dialogue turns for `chat-replay`. Existing YAMLs retain their corpus bytes and
+seed behavior. Its dataset options are:
+
+| Option | Default | Meaning |
+|---|---|---|
+| `memories_per_user` | `100` | Number of distinct generated items per user; integer >= 1 |
+| `content_chars` | `200` | Requested filler characters, excluding the user/index prefix; integer >= 1 |
+| `categories` | `0` | Number of round-robin metadata categories; integer >= 0, with 0 disabling them |
+| `corpus_seed` | `null` | Optional integer overriding the data seed; omitted/null inherits `--seed` |
+
+Booleans, strings, and floats (including `200.0`) are not integer settings.
+Invalid options now fail before backend probes/setup rather than being silently
+clamped or failing during iteration. Zero/negative `corpus_seed` values are valid.
+
+**Size convention.** `content_chars: 200` is not a 200-byte memory. The default
+first item has the 25-character prefix `syn_user_00000 memory 0: ` plus 200
+filler characters: **225 UTF-8 bytes** with the current ASCII generator. Larger
+indices lengthen the prefix. Content bytes exclude backend serialization and
+HTTP overhead, and do not specify tokens. The legacy filler may undershoot
+small requested lengths (for example, a request for 8 characters can yield
+`a dog a`, 7 characters). This algorithm is intentionally unchanged to preserve
+historical corpora and their RNG sequence; the setting is not an exact total
+length guarantee.
+
+**Separate data from scheduling.** To hold the corpus and content-derived query
+pool fixed while changing workload randomness through `--seed`:
+
+```yaml
+dataset:
+  name: synthetic
+  memories_per_user: 100
+  content_chars: 200
+  corpus_seed: 42
+```
+
+Without `corpus_seed`, `--seed` still controls both data and scheduling. An
+explicit `corpus_seed: 0` selects the original seed-zero corpus even with a
+different run seed. The override does not change user IDs, producer/category
+assignment, request budgets, scenario policy, or workload RNGs. A fixed corpus
+seed preserves per-user prefixes across corpus sizes, processes, and sweep
+namespaces. The finite stream still wraps according to the existing scenarios;
+it does not generate fresh unique items on every replay.
+
+**Reproduction metadata.** Synthetic runs add `meta.dataset_config` to stdout
+JSON and `summary.json`, with resolved defaults and the effective data seed:
+
+```json
+{
+  "generator": "legacy-filler-v1",
+  "memories_per_user": 100,
+  "content_chars": 200,
+  "content_chars_scope": "filler",
+  "categories": 0,
+  "corpus_seed": 42,
+  "corpus_seed_source": "dataset"
+}
+```
+
+`corpus_seed_source` is `run_seed` when the option is omitted/null. `meta.seed`
+retains the workload seed. Sweep manifests also include these settings under
+`config.dataset_config`; each repetition's summary retains its own copy.
+The generator identifier describes the preserved generation algorithm, not a
+corpus hash. Reporting does not enumerate the corpus or compute actual size
+statistics, and raw/CSV/time-series formats and metric definitions are unchanged.
+
 ## Workload examples
 
 ### Chatbot-LTM integration
@@ -238,8 +306,9 @@ ltm100 run --config examples/memmachine.yaml \
   the measured duration/op budget or recording its requests.
 - `--users N`: virtual-user or tenant pool size.
 - `--seed N`: reproducible load-shape seed; also selects the synthetic corpus
-  and its content-derived queries. Keep it fixed across comparable runs and
-  memory-growth points. Seed `0` preserves the original synthetic content.
+  and its content-derived queries unless `dataset.corpus_seed` overrides the
+  data seed. Keep the effective corpus seed fixed across memory-growth points.
+  Corpus seed `0` preserves the original synthetic content.
 - `--model closed|open`: scheduling model.
 - `--global-concurrency N`: maximum total in-flight operations (`0` = no cap).
 - `--arrival-rate F`, `--session-ops N`, `--queue-bound N`: open-model controls.

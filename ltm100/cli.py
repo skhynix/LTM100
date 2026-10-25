@@ -22,7 +22,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from ltm100.adapters.backends.memory_types import memory_type_settings
-from ltm100.config import build_backend, build_dataset, load_config
+from ltm100.config import build_backend, build_dataset, dataset_settings, load_config
 from ltm100.core.chat_profile import load_chat_profile
 from ltm100.core.config import RunConfig
 from ltm100.core.memory_growth import (
@@ -392,6 +392,9 @@ def _probe_server_metrics(cfg) -> dict:
 def _run(args: argparse.Namespace) -> int:
     cfg = load_config(args.config)
     run_cfg = _build_run_config(args)
+    # Resolve Synthetic options before health/metrics probes or worker setup.
+    # This constructs no corpus and leaves other datasets' loading unchanged.
+    generation = dataset_settings(cfg.dataset, seed=args.seed)
     time_series_interval = getattr(args, "time_series_interval", None)
     if time_series_interval is not None:
         if not math.isfinite(time_series_interval) or time_series_interval <= 0:
@@ -588,6 +591,8 @@ def _run(args: argparse.Namespace) -> int:
 
     if type_settings is not None:
         meta["memory_types"] = type_settings
+    if generation is not None:
+        meta["dataset_config"] = generation
 
     # The section's `raw` block is the full two-snapshot scrape: too big for
     # the inline copy, which exists to be read, and goes to its own file.

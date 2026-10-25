@@ -227,6 +227,15 @@ def test_memory_growth_sweep_reuses_run_path_and_aggregates(tmp_path, monkeypatc
     assert len({call._user_namespace for call in calls}) == 4
     manifest = json.loads((Path(args.output) / "manifest.json").read_text())
     assert manifest["status"] == "ok"
+    assert manifest["config"]["dataset_config"] == {
+        "generator": "legacy-filler-v1",
+        "memories_per_user": 20,
+        "content_chars": 200,
+        "content_chars_scope": "filler",
+        "categories": 0,
+        "corpus_seed": args.seed,
+        "corpus_seed_source": "run_seed",
+    }
     assert manifest["points"][0]["aggregate"]["qps"]["median"] == 10.0
     assert manifest["points"][1]["aggregate"]["qps"]["median"] == 20.0
 

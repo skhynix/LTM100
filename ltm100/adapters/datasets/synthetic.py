@@ -4,9 +4,13 @@ Generates deterministic per-user content from a seed, so a run can be driven
 without any external dataset download. Useful for smoke runs, regression, and
 comparing backends on identical synthetic load.
 
-Each virtual user gets `memories_per_user` memory items (content is
-deterministic per run seed+user+index). Search queries are content-derived by the
-scenarios from these memory items, so no separate query stream is exposed.
+Each virtual user gets `memories_per_user` memory items. `content_chars` requests
+filler characters, excluding the user/index prefix; it is not the total content
+size, a token count, or an HTTP payload size. The legacy filler can undershoot
+small requested lengths. Content is deterministic per effective corpus seed,
+user, and index. An optional `corpus_seed` overrides the run seed for data only.
+Search queries remain content-derived by the scenarios, with no separate query
+stream exposed.
 
 It is a real DatasetAdapter (registered as "synthetic"), not a test fixture.
 """
@@ -30,16 +34,45 @@ class SyntheticAdapter:
         memories_per_user: int = 100,
         content_chars: int = 200,
         categories: int = 0,
+        corpus_seed: int | None = None,
     ) -> None:
-        self.memories_per_user = max(1, memories_per_user)
-        self.content_chars = max(1, content_chars)
+        for name, value, minimum in (
+            ("memories_per_user", memories_per_user, 1),
+            ("content_chars", content_chars, 1),
+            ("categories", categories, 0),
+        ):
+            if type(value) is not int or value < minimum:
+                raise ValueError(f"synthetic.{name} must be an integer >= {minimum}")
+        if corpus_seed is not None and type(corpus_seed) is not int:
+            raise ValueError("synthetic.corpus_seed must be an integer or null")
+        self.memories_per_user = memories_per_user
+        self.content_chars = content_chars
+        self.corpus_seed = corpus_seed
         # The runner initializes the run seed through users() before consuming
-        # any corpus or query stream. Direct use without users() retains seed 0.
-        self._seed = 0
+        # any corpus or query stream. Without an override, direct use before
+        # users() retains seed 0.
+        self._seed = self._effective_seed(0)
         # A field for --filter to select on. 0 leaves metadata empty, so the
         # corpus is byte-identical to one built without this option; N spreads
         # items over N values, so a single-value filter selects about 1/N.
-        self.categories = max(0, categories)
+        self.categories = categories
+
+    def _effective_seed(self, seed: int) -> int:
+        return seed if self.corpus_seed is None else self.corpus_seed
+
+    def generation_settings(self, *, seed: int) -> dict:
+        """Describe resolved generation settings without consuming the corpus."""
+        return {
+            "generator": "legacy-filler-v1",
+            "memories_per_user": self.memories_per_user,
+            "content_chars": self.content_chars,
+            "content_chars_scope": "filler",
+            "categories": self.categories,
+            "corpus_seed": self._effective_seed(seed),
+            "corpus_seed_source": (
+                "run_seed" if self.corpus_seed is None else "dataset"
+            ),
+        }
 
     def _user_rng(self, user: UserId, seed: int) -> random.Random:
         if seed != 0:
@@ -53,7 +86,7 @@ class SyntheticAdapter:
         return random.Random(h)
 
     def users(self, n_users: int, *, seed: int = 0) -> list[UserId]:
-        self._seed = seed
+        self._seed = self._effective_seed(seed)
         return [f"syn_user_{i:05d}" for i in range(n_users)]
 
     def memory_stream(self, user: UserId) -> Iterator[MemoryItem]:

@@ -91,14 +91,17 @@ stored unit. The adapter owns the content; the backend adapter forwards
   not set; only `content` and `producer` (the `UserId`) are sent. A user's
   stream is its sample's entire haystack (typically tens to hundreds of
   chunks).
-- **Synthetic** — `memories_per_user` (default 100) deterministic items of
-  `content_chars` (default 200) each, generated from the run seed and user ID.
-  A fixed seed preserves each user's corpus prefix as the memory count grows;
-  seed `0` retains the original corpus. An optional
+- **Synthetic** — `memories_per_user` (default 100) deterministic items.
+  `content_chars` (default 200) requests filler characters, excluding the
+  user/index prefix; it is not the total content size or a token count.
+  Generation uses the run seed and user ID unless `corpus_seed` overrides the
+  data seed. A fixed effective corpus seed preserves each user's prefix as the
+  memory count grows; seed `0` retains the original corpus. An optional
   `categories` option writes `metadata.category` (`cat_<i mod N>`) so a
   single-value `--filter` selects about `1/N` of the data; with it unset the
   corpus is byte-identical to one built without it. Reproducible and
-  download-free.
+  download-free. See [Synthetic settings](running.md#synthetic-corpus-settings)
+  for size semantics, validation, seed separation, and report metadata.
 
 MemMachine REST defaults to episodic-only requests. Optional backend
 `add_memory_types`/`search_memory_types` select semantic or combined paths;

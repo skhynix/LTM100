@@ -101,6 +101,17 @@ def build_dataset(cfg: AdapterConfig) -> DatasetAdapter:
     return cls(**cfg.options)
 
 
+def dataset_settings(cfg: AdapterConfig, *, seed: int) -> dict | None:
+    """Validate and describe Synthetic settings without loading any data.
+
+    Other adapters keep their existing construction/loading lifecycle. This is
+    report metadata, not a new DatasetAdapter or workload execution contract.
+    """
+    if cfg.name == SyntheticAdapter.name:
+        return SyntheticAdapter(**cfg.options).generation_settings(seed=seed)
+    return None
+
+
 def build_backend(cfg: AdapterConfig) -> LTMClient:
     memory_type_settings(cfg.name, cfg.options)
     # Deferred so that fastmcp, which ships only in the [mcp] extra, is
@@ -118,5 +129,6 @@ __all__ = [
     "BenchmarkConfig",
     "build_backend",
     "build_dataset",
+    "dataset_settings",
     "load_config",
 ]

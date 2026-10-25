@@ -14,7 +14,7 @@
 dataset:
   name: synthetic
   memories_per_user: 2000
-  content_chars: 200
+  content_chars: 200  # Requested filler characters; excludes the user/index prefix.
   categories: 10            # gives m.category something to select as well
 
 backend:

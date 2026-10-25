@@ -10,7 +10,7 @@
 dataset:
   name: synthetic
   memories_per_user: 100
-  content_chars: 200
+  content_chars: 200  # Requested filler characters; excludes the user/index prefix.
 backend:
   name: memmachine
   base_url: http://localhost:8080
