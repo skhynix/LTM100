@@ -1,0 +1,39 @@
+# Opt-in heterogeneous filler lengths + MemMachine REST.
+# Replace this distribution block with content_chars to use the legacy corpus;
+# do not specify both. Lengths exclude the user/index prefix and are characters,
+# not tokens or HTTP payload bytes. Corpus replay reuses the sampled sizes.
+#
+#   ltm100 run --config examples/synthetic-lengths.yaml \
+#       --scenario add-load --users 16 --duration 30 --seed 0
+#   ltm100 run --config examples/synthetic-lengths.yaml \
+#       --scenario search-load --users 16 --duration 30 --seed 0 \
+#       --preingest --preingest-fraction 1.0
+#
+# search-load queries use the generated content, so their lengths vary too.
+# This dataset also supports mixed, but does not provide chat-replay turns.
+
+dataset:
+  name: synthetic
+  memories_per_user: 1000
+  corpus_seed: 42  # Keep data fixed while varying --seed for workload randomness.
+  content_chars_distribution:
+    type: weighted
+    choices:
+      - chars: 200
+        weight: 70
+      - chars: 1000
+        weight: 25
+      - chars: 4000
+        weight: 5
+  # Alternatively replace the entire distribution above with:
+  # content_chars_distribution:
+  #   type: uniform
+  #   min_chars: 100
+  #   max_chars: 2000
+
+backend:
+  name: memmachine
+  base_url: http://localhost:8080
+  org_prefix: ltm100
+  timeout: 60.0
+  add_batch_size: 50

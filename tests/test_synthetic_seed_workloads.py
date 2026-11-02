@@ -20,11 +20,12 @@ from ltm100.core.scenarios import AddLoad, Mixed, SearchLoad
 def _seeded_entry(args: dict, proc_index: int):
     class CapturedDataset(SyntheticAdapter):
         def __init__(self):
+            sizing = args.get("sizing", {"content_chars": 80})
             super().__init__(
                 memories_per_user=6,
-                content_chars=80,
                 categories=3,
                 corpus_seed=args["corpus_seed"],
+                **sizing,
             )
             self.corpus = {}
 
@@ -99,16 +100,36 @@ def _seeded_entry(args: dict, proc_index: int):
 
 @pytest.mark.parametrize("scenario", ["add-load", "search-load", "mixed"])
 @pytest.mark.parametrize(
+    "sizing",
+    [
+        {"content_chars": 80},
+        {
+            "content_chars_distribution": {
+                "type": "uniform",
+                "min_chars": 1,
+                "max_chars": 512,
+            }
+        },
+        {
+            "content_chars_distribution": {
+                "type": "weighted",
+                "choices": [{"chars": 8, "weight": 1}, {"chars": 512, "weight": 3}],
+            }
+        },
+    ],
+    ids=["legacy", "uniform", "weighted"],
+)
+@pytest.mark.parametrize(
     "seed,corpus_seed", [(0, None), (42, None), (-7, None), (42, 0), (19, 42), (-7, 42)]
 )
 def test_workloads_preserve_seeded_corpus_across_process_counts(
-    tmp_path, scenario, seed, corpus_seed
+    tmp_path, scenario, seed, corpus_seed, sizing
 ):
     reference = SyntheticAdapter(
         memories_per_user=6,
-        content_chars=80,
         categories=3,
         corpus_seed=corpus_seed,
+        **sizing,
     )
     expected = {
         user: list(reference.memory_stream(user))
@@ -124,6 +145,7 @@ def test_workloads_preserve_seeded_corpus_across_process_counts(
                 "scenario": scenario,
                 "seed": seed,
                 "corpus_seed": corpus_seed,
+                "sizing": sizing,
                 "procs": procs,
                 "traces": str(traces),
             },

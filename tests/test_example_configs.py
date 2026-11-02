@@ -14,6 +14,7 @@ RECOMMENDED_SCENARIOS = {
     "memmachine-mcp.yaml": ("chat-replay",),
     "memmachine-memory-types.yaml": ("add-load", "search-load", "mixed"),
     "synthetic.yaml": ("add-load", "search-load", "mixed"),
+    "synthetic-lengths.yaml": ("add-load", "search-load", "mixed"),
     "nebius.yaml": ("add-load", "search-load", "mixed"),
     "mem0.yaml": ("add-load", "search-load", "mixed"),
     "supermemory.yaml": ("add-load", "search-load", "mixed"),
