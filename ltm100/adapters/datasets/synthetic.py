@@ -7,7 +7,9 @@ comparing backends on identical synthetic load.
 Each virtual user gets `memories_per_user` memory items. `content_chars` requests
 filler characters, excluding the user/index prefix; it is not the total content
 size, a token count, or an HTTP payload size. The legacy filler can undershoot
-small requested lengths. Content is deterministic per effective corpus seed,
+small requested lengths. Optional `content_chars_distribution` instead samples
+an exact filler length per corpus item, using a separate length RNG. Content
+is deterministic per effective corpus seed,
 user, and index. An optional `corpus_seed` overrides the run seed for data only.
 Search queries remain content-derived by the scenarios, with no separate query
 stream exposed.
@@ -20,8 +22,34 @@ from __future__ import annotations
 import hashlib
 import random
 from collections.abc import Iterator
+from enum import Enum
 
+from ltm100.adapters.datasets.synthetic_lengths import parse_distribution
 from ltm100.common import MemoryItem, UserId
+
+
+class _DefaultContentChars(Enum):
+    # Distinguish omission from an explicitly supplied value, including 200.
+    VALUE = 200
+
+
+_WORDS = (
+    "the",
+    "quick",
+    "brown",
+    "fox",
+    "jumps",
+    "over",
+    "a",
+    "lazy",
+    "dog",
+    "while",
+    "memory",
+    "systems",
+    "store",
+    "and",
+    "retrieve",
+)
 
 
 class SyntheticAdapter:
@@ -32,10 +60,20 @@ class SyntheticAdapter:
     def __init__(
         self,
         memories_per_user: int = 100,
-        content_chars: int = 200,
+        content_chars: int | _DefaultContentChars = _DefaultContentChars.VALUE,
         categories: int = 0,
         corpus_seed: int | None = None,
+        content_chars_distribution: dict | None = None,
     ) -> None:
+        if (
+            content_chars_distribution is not None
+            and content_chars is not _DefaultContentChars.VALUE
+        ):
+            raise ValueError(
+                "synthetic.content_chars and content_chars_distribution are mutually exclusive"
+            )
+        if content_chars is _DefaultContentChars.VALUE:
+            content_chars = 200
         for name, value, minimum in (
             ("memories_per_user", memories_per_user, 1),
             ("content_chars", content_chars, 1),
@@ -46,7 +84,14 @@ class SyntheticAdapter:
         if corpus_seed is not None and type(corpus_seed) is not int:
             raise ValueError("synthetic.corpus_seed must be an integer or null")
         self.memories_per_user = memories_per_user
-        self.content_chars = content_chars
+        self._length_distribution = (
+            parse_distribution(content_chars_distribution)
+            if content_chars_distribution is not None
+            else None
+        )
+        self.content_chars = (
+            content_chars if self._length_distribution is None else None
+        )
         self.corpus_seed = corpus_seed
         # The runner initializes the run seed through users() before consuming
         # any corpus or query stream. Without an override, direct use before
@@ -62,8 +107,12 @@ class SyntheticAdapter:
 
     def generation_settings(self, *, seed: int) -> dict:
         """Describe resolved generation settings without consuming the corpus."""
-        return {
-            "generator": "legacy-filler-v1",
+        settings = {
+            "generator": (
+                "legacy-filler-v1"
+                if self._length_distribution is None
+                else "distributed-filler-v1"
+            ),
             "memories_per_user": self.memories_per_user,
             "content_chars": self.content_chars,
             "content_chars_scope": "filler",
@@ -73,6 +122,11 @@ class SyntheticAdapter:
                 "run_seed" if self.corpus_seed is None else "dataset"
             ),
         }
+        if self._length_distribution is not None:
+            settings["content_chars_distribution"] = (
+                self._length_distribution.settings()
+            )
+        return settings
 
     def _user_rng(self, user: UserId, seed: int) -> random.Random:
         if seed != 0:
@@ -91,8 +145,18 @@ class SyntheticAdapter:
 
     def memory_stream(self, user: UserId) -> Iterator[MemoryItem]:
         rng = self._user_rng(user + "::mem", self._seed)
+        distribution = self._length_distribution
+        length_rng = (
+            self._user_rng(user + "::length", self._seed)
+            if distribution is not None
+            else None
+        )
         for i in range(self.memories_per_user):
-            content = f"{user} memory {i}: " + _filler(rng, self.content_chars)
+            if distribution is None:
+                filler = _filler(rng, self.content_chars)
+            else:
+                filler = _exact_filler(rng, distribution.sample(length_rng))
+            content = f"{user} memory {i}: " + filler
             # cat_<i mod N>, the same naming the REST bench uses, so a filter
             # expression is comparable between the two harnesses.
             metadata = (
@@ -102,26 +166,20 @@ class SyntheticAdapter:
 
 
 def _filler(rng: random.Random, n: int) -> str:
-    words = [
-        "the",
-        "quick",
-        "brown",
-        "fox",
-        "jumps",
-        "over",
-        "a",
-        "lazy",
-        "dog",
-        "while",
-        "memory",
-        "systems",
-        "store",
-        "and",
-        "retrieve",
-    ]
     out = []
     while len(out) < n // 4 + 1:
-        out.append(rng.choice(words))
+        out.append(rng.choice(_WORDS))
+    return " ".join(out)[:n]
+
+
+def _exact_filler(rng: random.Random, n: int) -> str:
+    """Fill the sampled size in linear time; the legacy path stays unchanged."""
+    out = []
+    length = 0
+    while length < n:
+        word = rng.choice(_WORDS)
+        length += len(word) + bool(out)
+        out.append(word)
     return " ".join(out)[:n]
 
 

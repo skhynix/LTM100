@@ -45,7 +45,7 @@ async def _cli(*args):
     assert process.returncode == 0, (stdout.decode(), stderr.decode())
 
 
-def _config(path, *, memories=3, corpus_seed=None):
+def _config(path, *, memories=3, corpus_seed=None, distribution=None):
     options = {
         "base_url": os.environ["LTM100_MEMMACHINE_E2E_URL"],
         "org_prefix": f"seed_{uuid.uuid4().hex}",
@@ -57,7 +57,11 @@ def _config(path, *, memories=3, corpus_seed=None):
                 "dataset": {
                     "name": "synthetic",
                     "memories_per_user": memories,
-                    "content_chars": 80,
+                    **(
+                        {"content_chars": 80}
+                        if distribution is None
+                        else {"content_chars_distribution": distribution}
+                    ),
                     "categories": 3,
                     **({"corpus_seed": corpus_seed} if corpus_seed is not None else {}),
                 },
@@ -137,9 +141,21 @@ async def test_live_seeded_corpus_matches_single_and_multiprocess_runs(
     assert snapshots[0] == snapshots[1]
 
 
-async def test_live_seeded_memory_growth_sweep(tmp_path):
+@pytest.mark.parametrize(
+    "distribution",
+    [
+        None,
+        {"type": "uniform", "min_chars": 8, "max_chars": 2000},
+        {
+            "type": "weighted",
+            "choices": [{"chars": 8, "weight": 1}, {"chars": 4000, "weight": 3}],
+        },
+    ],
+    ids=["legacy", "uniform", "weighted"],
+)
+async def test_live_seeded_memory_growth_sweep(tmp_path, distribution):
     config = tmp_path / "config.yaml"
-    _config(config, memories=6, corpus_seed=0)
+    _config(config, memories=6, corpus_seed=0, distribution=distribution)
     output = tmp_path / "sweep"
     await _cli(
         "sweep",
@@ -172,6 +188,9 @@ async def test_live_seeded_memory_growth_sweep(tmp_path):
     settings = manifest["config"]["dataset_config"]
     assert settings["corpus_seed"] == 0
     assert settings["corpus_seed_source"] == "dataset"
+    if distribution is not None:
+        assert settings["content_chars"] is None
+        assert settings["content_chars_distribution"] == distribution
     for point in manifest["points"]:
         for repeat in point["repetitions"]:
             assert repeat["status"] == "ok"
@@ -193,11 +212,30 @@ async def test_live_seeded_memory_growth_sweep(tmp_path):
 @pytest.mark.parametrize("scenario", ["add-load", "search-load", "mixed"])
 @pytest.mark.parametrize("model", ["closed", "open"])
 @pytest.mark.parametrize("procs", [1, 2])
+@pytest.mark.parametrize(
+    "distribution",
+    [
+        None,
+        {"type": "uniform", "min_chars": 8, "max_chars": 2000},
+        {
+            "type": "weighted",
+            "choices": [{"chars": 8, "weight": 1}, {"chars": 4000, "weight": 3}],
+        },
+    ],
+    ids=["legacy", "uniform", "weighted"],
+)
 async def test_live_fixed_corpus_workloads_and_reports(
-    tmp_path, scenario, model, procs
+    tmp_path, scenario, model, procs, distribution
 ):
     reference = SyntheticAdapter(
-        memories_per_user=4, content_chars=80, categories=3, corpus_seed=-7
+        memories_per_user=4,
+        categories=3,
+        corpus_seed=-7,
+        **(
+            {"content_chars": 80}
+            if distribution is None
+            else {"content_chars_distribution": distribution}
+        ),
     )
     expected = {
         user: {item.content for item in reference.memory_stream(user)}
@@ -206,7 +244,7 @@ async def test_live_fixed_corpus_workloads_and_reports(
     snapshots = []
     for run_seed in (7, 19):
         config = tmp_path / f"config_{run_seed}.yaml"
-        options = _config(config, memories=4, corpus_seed=-7)
+        options = _config(config, memories=4, corpus_seed=-7, distribution=distribution)
         output = tmp_path / f"out_{run_seed}"
         args = [
             "run",

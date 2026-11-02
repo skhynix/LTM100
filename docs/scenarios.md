@@ -102,6 +102,9 @@ stored unit. The adapter owns the content; the backend adapter forwards
   corpus is byte-identical to one built without it. Reproducible and
   download-free. See [Synthetic settings](running.md#synthetic-corpus-settings)
   for size semantics, validation, seed separation, and report metadata.
+  Optional [length distributions](running.md#synthetic-length-distributions)
+  sample exact filler sizes per corpus item. Search queries still use these
+  generated contents; scenario scheduling and corpus wrapping are unchanged.
 
 MemMachine REST defaults to episodic-only requests. Optional backend
 `add_memory_types`/`search_memory_types` select semantic or combined paths;

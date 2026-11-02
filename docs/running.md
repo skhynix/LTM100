@@ -37,6 +37,7 @@ seed behavior. Its dataset options are:
 |---|---|---|
 | `memories_per_user` | `100` | Number of distinct generated items per user; integer >= 1 |
 | `content_chars` | `200` | Requested filler characters, excluding the user/index prefix; integer >= 1 |
+| `content_chars_distribution` | `null` | Optional Uniform/Weighted filler-length sampling; mutually exclusive with explicit `content_chars` |
 | `categories` | `0` | Number of round-robin metadata categories; integer >= 0, with 0 disabling them |
 | `corpus_seed` | `null` | Optional integer overriding the data seed; omitted/null inherits `--seed` |
 
@@ -94,6 +95,73 @@ retains the workload seed. Sweep manifests also include these settings under
 The generator identifier describes the preserved generation algorithm, not a
 corpus hash. Reporting does not enumerate the corpus or compute actual size
 statistics, and raw/CSV/time-series formats and metric definitions are unchanged.
+
+### Synthetic length distributions
+
+[`examples/synthetic-lengths.yaml`](../examples/synthetic-lengths.yaml) opts
+into heterogeneous input lengths. Replace the fixed `content_chars` setting
+with a distribution; even an explicit `content_chars: 200` conflicts with an
+active distribution. Omitted/null distributions retain the legacy generator
+and metadata unchanged, including its historical short-filler behavior.
+
+Uniform samples integer filler lengths inclusively between the two bounds:
+
+```yaml
+  content_chars_distribution:
+    type: uniform
+    min_chars: 100
+    max_chars: 2000
+```
+
+Weighted samples one of the specified lengths using relative probabilities:
+
+```yaml
+  content_chars_distribution:
+    type: weighted
+    choices:
+      - chars: 200
+        weight: 70
+      - chars: 1000
+        weight: 25
+      - chars: 4000
+        weight: 5
+```
+
+The example selects sizes with probabilities 70%, 25%, and 5%; it does not
+allocate exact per-user counts. Choice order is part of the seeded recipe.
+Lengths must be positive integers; Uniform requires `min_chars <= max_chars`.
+Weighted requires a non-empty list of distinct lengths and finite positive
+numeric weights with a finite total. Unknown types/keys, booleans, malformed
+choices, and conflicting fixed/distributed settings fail before backend work.
+
+The new `distributed-filler-v1` generator creates **exactly the sampled number
+of filler characters**. Total content still includes the user/index prefix;
+these are not token counts or HTTP payload sizes. This is an opt-in corpus
+recipe, not byte-equivalent to the legacy generator at the same filler length.
+The vocabulary remains synthetic filler, not factual or conversational text.
+
+Length sampling uses a separate per-user RNG from content generation; both
+derive from the effective corpus seed. Increasing `memories_per_user` preserves
+the corpus prefix under a fixed recipe. User count, process sharding, and
+memory-growth namespaces do not change a source user's corpus. As with the
+legacy corpus, replay wraps existing items and does not resample sizes for
+each ADD, session, or warm-up phase. Generation remains lazy per item, while
+existing scenarios may materialize/cache each user's corpus or query pool.
+Larger configured corpora still require corresponding client memory and CPU.
+
+**Search interpretation:** existing scenarios derive queries from memory
+content. A length distribution therefore changes both stored document lengths
+and search query lengths. `--query-limit` still selects the same source prefix
+at each memory-growth point with a fixed recipe/seed. It does not independently
+control query length. Pre-ingest and memory-growth sizes remain item counts,
+not byte or token budgets; timing, top-k, and request budgets are unchanged.
+
+Distributed runs report `generator: distributed-filler-v1`, `content_chars:
+null`, `content_chars_scope: filler`, and the resolved
+`content_chars_distribution` in `meta.dataset_config`. Seed provenance and
+sweep manifests use the existing paths. Reporting does not enumerate the
+corpus to compute observed size statistics; raw, CSV, and time-series schemas
+and metric definitions stay unchanged.
 
 ## Workload examples
 

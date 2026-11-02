@@ -478,6 +478,10 @@ whole document.
   `corpus_seed` overrides data only. Existing defaults and legacy corpus bytes
   are preserved. Resolved generation settings are reported without consuming
   data; see [Synthetic settings](docs/running.md#synthetic-corpus-settings).
+- Opt-in Synthetic length distributions use a separate per-user length RNG
+  and exact-size filler generation. Lengths belong to corpus items, not request
+  scheduling; finite corpus prefixes and content-derived queries retain the
+  existing dataset/scenario boundary. Legacy generation is unchanged.
 - Different seeds produce variance runs; same seed + same config reproduces.
 - Wall-clock timing is inherently non-deterministic (network/server); the
   *load shape* (order, mix, arrival) is deterministic under a seed.

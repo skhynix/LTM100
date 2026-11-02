@@ -8,6 +8,7 @@ backend. The dataset determines whether `chat-replay` is available.
 | `memmachine.yaml` | LongMemEval | MemMachine REST | `chat-replay` |
 | `memmachine-memory-types.yaml` | Synthetic | MemMachine REST (semantic opt-in) | `add-load`, `search-load`, `mixed` |
 | `synthetic.yaml` | Synthetic | MemMachine REST | `add-load`, `search-load`, `mixed` |
+| `synthetic-lengths.yaml` | Synthetic with sampled filler lengths | MemMachine REST | `add-load`, `search-load`, `mixed` |
 | `nebius.yaml` | Nebius agent trajectory corpus | MemMachine REST | `add-load`, `search-load`, `mixed` |
 | `memmachine-mcp.yaml` | LongMemEval | MemMachine MCP | `chat-replay` |
 | `mem0.yaml` | Synthetic | Mem0 REST | `add-load`, `search-load`, `mixed` |
@@ -34,6 +35,11 @@ For `search-load`, use `--preingest` so the measured search begins with a
 populated corpus. The same is recommended for `mixed` when searches should be
 non-empty from the start. Each YAML header contains a complete run command and
 backend-specific limitations.
+
+`synthetic-lengths.yaml` opts into Uniform or Weighted filler-length sampling.
+The default `synthetic.yaml` keeps the historical corpus. Both memory content
+and content-derived search queries vary in length with a distribution; see
+[Synthetic settings](../docs/running.md#synthetic-length-distributions).
 
 See the root [README](../README.md) for scenario details and common flags.
 
